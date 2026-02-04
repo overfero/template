@@ -1,0 +1,3 @@
+- model=yolo26s.pt
+- source=test3.mp4
+- show=True
