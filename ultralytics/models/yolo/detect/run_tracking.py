@@ -1,17 +1,16 @@
-#!/usr/bin/env python3
-"""
-Run YOLO detection with DeepSort tracking using stream mode.
-Usage: python run_tracking.py
-
-This script demonstrates how to use custom DetectionPredictor with DeepSort
-in streaming mode, just like the official Ultralytics API example.
-"""
-
 from ultralytics import YOLO
+from pathlib import Path
 
-# Load model - will automatically use our custom DetectionPredictor from predict.py
-# which includes DeepSort tracking
-model = YOLO("yolo26l.pt")
+# Model name - will auto-download if not exists
+model_name = "yolo26l.pt"
+
+# YOLO class automatically downloads model if not found
+# Just like when using CLI: yolo predict model=yolo26n.pt
+print(f"Loading model: {model_name}")
+if not Path(model_name).exists():
+    print(f"Model not found locally, will download from Ultralytics...")
+
+model = YOLO(model_name)  # Auto-downloads if not exists
 
 # Run inference with stream=True (like in docs)
 # The custom DetectionPredictor will automatically initialize DeepSort
@@ -20,9 +19,6 @@ results = model(
     stream=True,  # Use streaming mode to avoid OOM
     save=True,    # Save results with tracking
     show=True,    # Show preview window
-    imgsz=640,    # Smaller image size for memory efficiency
-    conf=0.25,    # Confidence threshold
-    iou=0.45,     # IoU threshold
     device=0,     # Use GPU 0, or 'cpu' for CPU
     half=True,    # Use FP16 for memory efficiency
     verbose=True  # Show progress
@@ -47,4 +43,3 @@ for result in results:
 
 print(f"\n✅ Done! Processed {frame_count} frames total.")
 print(f"📁 Output saved to: runs/detect/predict*/")
-print(f"🎯 Video includes: DeepSort tracking, speed estimation, vehicle counting")
