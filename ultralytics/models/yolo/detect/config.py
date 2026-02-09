@@ -1,6 +1,4 @@
-"""
-Configuration file for detection and tracking parameters.
-"""
+"""Configuration file for detection and tracking parameters."""
 
 from pathlib import Path
 
@@ -16,7 +14,7 @@ MARGIN = 10  # pixels
 FONT_SIZE = 1
 FONT_THICKNESS = 1
 HANDEDNESS_TEXT_COLOR = (88, 205, 54)  # vibrant green
-HAND_LANDMARKER_MODEL_PATH = str(ULTRALYTICS_ROOT / 'checkpoint' / 'hand_landmarker.task')
+HAND_LANDMARKER_MODEL_PATH = str(ULTRALYTICS_ROOT / "checkpoint" / "hand_landmarker.task")
 NUM_HANDS = 2
 
 # ============================================================================
@@ -24,7 +22,9 @@ NUM_HANDS = 2
 # ============================================================================
 USE_DEEPSORT = False  # Set to True to use DeepSort, False to use built-in tracker
 DEEPSORT_CONFIG_PATH = str(ULTRALYTICS_ROOT / "trackers" / "deep_sort_pytorch" / "configs" / "deep_sort.yaml")
-DEEPSORT_REID_CKPT = str(ULTRALYTICS_ROOT / "trackers" / "deep_sort_pytorch" / "deep_sort" / "deep" / "checkpoint" / "ckpt.t7")
+DEEPSORT_REID_CKPT = str(
+    ULTRALYTICS_ROOT / "trackers" / "deep_sort_pytorch" / "deep_sort" / "deep" / "checkpoint" / "ckpt.t7"
+)
 
 # ============================================================================
 # Camera Configuration
@@ -51,10 +51,10 @@ SHELF_LINE_5_6 = ((585, 715), (1379, 651))  # Line 5-6 (Cyan)
 SHELF_LINE_7_8 = ((665, 634), (1282, 585))  # Line 7-8 (Orange)
 
 # Line colors for visualization
-LINE_COLOR_1_2 = (0, 255, 255)    # Yellow
-LINE_COLOR_3_4 = (255, 0, 255)    # Magenta
-LINE_COLOR_5_6 = (255, 255, 0)    # Cyan
-LINE_COLOR_7_8 = (0, 165, 255)    # Orange
+LINE_COLOR_1_2 = (0, 255, 255)  # Yellow
+LINE_COLOR_3_4 = (255, 0, 255)  # Magenta
+LINE_COLOR_5_6 = (255, 255, 0)  # Cyan
+LINE_COLOR_7_8 = (0, 165, 255)  # Orange
 LINE_COLOR_MAIN = (46, 162, 112)  # Main line color
 
 # Line thickness
