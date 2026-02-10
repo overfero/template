@@ -1,0 +1,33 @@
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+
+# HybridSORT tracker default config (based on paper defaults)
+# HybridSORT: Hybrid multi-stage matching tracker with 4-point velocity prediction and TCM
+# Paper: https://arxiv.org/abs/2308.00783
+
+tracker_type: hybridsort # (str) Tracker backend: hybridsort|ocsort|bytetrack|botsort
+
+# Detection filtering
+det_thresh: 0.25 # (float) Detection confidence threshold for first stage
+track_buffer: 30 # (int) Frames to keep lost tracks alive
+
+# HybridSORT parameters (paper defaults)
+max_age: 30 # (int) Maximum frames to keep a track alive without updates
+min_hits: 3 # (int) Minimum consecutive detections before confirming a track
+iou_threshold: 0.3 # (float) IoU threshold for associating detections with tracks
+delta_t: 3 # (int) Number of frames to look back for velocity estimation
+asso_func: giou # (str) Association function: iou|giou|ciou|diou|ct_dist|Height_Modulated_IoU
+inertia: 0.2 # (float) Weight for velocity-based prediction [0-1]
+use_byte: True # (bool) Enable ByteTrack-style two-stage association (set True for crowded scenes)
+
+# Trajectory Confidence Modulation (TCM) parameters
+TCM_first_step: True # (bool) Enable TCM in first matching step
+TCM_first_step_weight: 0.5 # (float) Weight for TCM score modulation in first stage [0-1]
+TCM_byte_step: True # (bool) Enable TCM in byte matching step
+TCM_byte_step_weight: 0.5 # (float) Weight for TCM score modulation in byte step [0-1]
+track_thresh: 0.5 # (float) Confidence threshold for track quality estimation
+
+# Tuning tips:
+# - Crowded scenes: use_byte=True, det_thresh=0.2, TCM_first_step_weight=0.7
+# - Fast motion: inertia=0.3-0.4, delta_t=5
+# - High occlusion: asso_func=giou or ciou, TCM_first_step_weight=0.7-0.8
+# - Sparse scenes: use_byte=False, det_thresh=0.3-0.5, iou_threshold=0.5
