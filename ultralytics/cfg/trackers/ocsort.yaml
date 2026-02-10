@@ -1,0 +1,27 @@
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+
+# OC-SORT tracker defaults for mode="track"
+# OC-SORT: Observation-Centric SORT with improved handling of occlusions and non-linear motion
+# Docs: https://docs.ultralytics.com/modes/track/
+
+tracker_type: ocsort # (str) Tracker backend: ocsort|bytetrack|botsort
+
+# Detection filtering
+det_thresh: 0.25 # (float) Detection confidence threshold; detections below this are ignored
+track_buffer: 30 # (int) Frames to keep lost tracks alive (used to calculate max_age internally)
+
+# OC-SORT specific parameters
+max_age: 30 # (int) Maximum frames to keep a track alive without updates before removing it
+min_hits: 3 # (int) Minimum consecutive detections before confirming a track
+iou_threshold: 0.3 # (float) IoU threshold for associating detections with existing tracks
+delta_t: 3 # (int) Number of frames to look back for velocity estimation (observation-centric momentum)
+asso_func: iou # (str) Association function: iou|giou|ciou|diou|ct_dist; metric for matching tracks to detections
+inertia: 0.2 # (float) Weight for observation-centric momentum [0-1]; higher = more momentum influence
+use_byte: False # (bool) Enable ByteTrack-style two-stage association with low-confidence detections
+
+# Legacy parameters for compatibility (not used in OC-SORT but required by Ultralytics)
+track_high_thresh: 0.25 # (float) Compatibility parameter (use det_thresh instead)
+track_low_thresh: 0.1 # (float) Compatibility parameter (not used in basic OC-SORT)
+new_track_thresh: 0.25 # (float) Compatibility parameter (use det_thresh instead)
+match_thresh: 0.8 # (float) Compatibility parameter (use iou_threshold instead)
+fuse_score: False # (bool) Compatibility parameter (not used in OC-SORT)

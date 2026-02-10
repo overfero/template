@@ -18,7 +18,7 @@ results = model.track(
     show=True,    
     device=0,     
     persist=True,  
-    tracker="bytetrack.yaml"
+    tracker="ocsort.yaml"  # Changed to OC-SORT tracker
 )
 
 # Process results in streaming mode (like in docs)
