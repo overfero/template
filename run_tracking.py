@@ -2,7 +2,7 @@ from ultralytics import YOLO
 from pathlib import Path
 
 
-model_name = "ultralytics/checkpoint/best (1).pt"
+model_name = "ultralytics/checkpoint/best1.pt"
 
 #
 print(f"Loading model: {model_name}")

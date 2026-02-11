@@ -63,6 +63,7 @@ stored_moving_objects = {}  # {class_name: Product}
 counted_crossing_ids = {}  # {ID: 'North' or 'South'} - Track last crossing direction
 # Track IDs that were seen below the line
 ids_below_line = set()  # IDs detected below virtual line
+ids_above_line = set()  # IDs detected above virtual line
 
 # Set virtual line position based on camera position from config
 line = LINE_TOP_CAMERA if CAMERA_FROM_TOP else LINE_BOTTOM_CAMERA
@@ -310,7 +311,7 @@ class DetectionPredictor(BasePredictor):
                         # Track if object is below line
                         if is_point_below_line(current_pos, line[0], line[1]):
                             ids_below_line.add(identity)
-                        
+
                         # If object was below line and now above line = taken (if not already counted as North)
                         elif is_point_above_line(current_pos, line[0], line[1]) and identity in ids_below_line:
                             last_direction = counted_crossing_ids.get(identity, None)
@@ -326,8 +327,6 @@ class DetectionPredictor(BasePredictor):
                                         object_counter[obj_label] = 0
                                     object_counter[obj_label] += 1
                                     product.taken_counted = True
-                                    counted_crossing_ids[identity] = 'North'
-                                    # remove from below-line set to avoid duplicate counting
                                     if identity in ids_below_line:
                                         ids_below_line.discard(identity)
                                     print(f"[TAKEN] {class_name} ID {identity} moved from below to above line - Taken count: {object_counter[obj_label]}")
@@ -346,6 +345,46 @@ class DetectionPredictor(BasePredictor):
                                     if identity in ids_below_line:
                                         ids_below_line.discard(identity)
                                     print(f"[TAKEN] {class_name} ID {identity} moved from below to above line - Taken count: {object_counter[obj_label]}")
+
+
+                        if is_point_above_line(current_pos, line[0], line[1]):
+                            ids_above_line.add(identity)
+                        
+                        # If object was above line and now below line = returned (if not already counted as South)
+                        elif is_point_below_line(current_pos, line[0], line[1]) and identity in ids_above_line:
+                            last_direction = counted_crossing_ids.get(identity, None)
+                            
+                            # Count as returned if: never counted OR last was taken (North)
+                            # Prefer Product-level flag if available
+                            product = stored_moving_objects.get(class_name)
+                            if product and product.id == identity:
+                                # Only increment when product hasn't been marked as returned
+                                if not product.returned_counted:
+                                    obj_label = f"{class_name}"
+                                    if obj_label not in object_counter1:
+                                        object_counter1[obj_label] = 0
+                                    object_counter1[obj_label] += 1
+                                    product.returned_counted = True
+                                    counted_crossing_ids[identity] = 'South'
+                                    # remove from above-line set to avoid duplicate counting
+                                    if identity in ids_above_line:
+                                        ids_above_line.discard(identity)
+                                    print(f"[RETURNED] {class_name} ID {identity} moved from above to below line - Returned count: {object_counter1[obj_label]}")
+                                else:
+                                    # already counted at product level; skip
+                                    pass
+                            else:
+                                # Fallback: no Product info available, use last_direction logic
+                                if last_direction is None or last_direction == 'North':
+                                    obj_label = f"{class_name}"
+                                    if obj_label not in object_counter1:
+                                        object_counter1[obj_label] = 0
+                                    object_counter1[obj_label] += 1
+                                    counted_crossing_ids[identity] = 'South'
+                                    # remove from above-line set to avoid duplicate counting
+                                    if identity in ids_above_line:
+                                        ids_above_line.discard(identity)
+                                    print(f"[RETURNED] {class_name} ID {identity} moved from above to below line - Returned count: {object_counter1[obj_label]}")
                     
                     # Now draw boxes with potentially updated identities
                     draw_boxes(im0, bbox_xyxy, self.model.names, object_id, identities, data_deque, object_counter, object_counter1, line, counted_crossing_ids, stored_moving_objects, frame if frame is not None else 0)

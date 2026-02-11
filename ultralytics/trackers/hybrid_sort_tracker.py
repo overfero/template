@@ -204,7 +204,7 @@ class HybridSORT(BYTETracker):
                     if track_cls == lost_info['cls']:
                         # Check if ID difference is <= 3
                         id_diff = abs(track_id - lost_id)
-                        if id_diff <= 3 and id_diff < min_id_diff:
+                        if id_diff <= 5 and id_diff < min_id_diff:
                             min_id_diff = id_diff
                             matched_lost_id = lost_id
             
@@ -283,7 +283,7 @@ class HybridSORT(BYTETracker):
                     pass
         
         # Update lost_tracks: Add tracks that disappeared and meet the appearance criteria
-        # Only add tracks with at least 8 appearances in the last 15 frames
+        # Only add tracks with at least 5 appearances in the last 15 frames
         previous_track_ids = set(self.lost_tracks.keys()) | set(self.track_history.keys())
         missing_track_ids = previous_track_ids - current_track_ids
         

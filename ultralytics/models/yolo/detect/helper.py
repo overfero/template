@@ -249,46 +249,52 @@ def get_significantly_moving_objects(data_deque, identities, object_id, names, v
             }
         }
     """
-    moving_objects = {}
-    
+    groups = {
+        'below': {},
+        'above': {}
+    }
+
     if identities is None or len(identities) == 0:
-        return moving_objects
-    
+        return groups
+
     for i, obj_id in enumerate(identities):
         obj_id = int(obj_id)
-        
-        # Skip jika object tidak punya trail atau trail terlalu pendek
+
+        # Skip if no trail or too short
         if obj_id not in data_deque or len(data_deque[obj_id]) < min_trail_length:
             continue
-        
+
         trail = list(data_deque[obj_id])
         current_pos = trail[0]
-        
-        # Hitung total displacement dari beberapa frame terakhir
+        if current_pos is None:
+            continue
+
+        # Compute total displacement over recent frames (up to 10)
         total_displacement = 0.0
-        for j in range(min(len(trail) - 1, 10)):  # Cek max 10 frame terakhir
+        for j in range(min(len(trail) - 1, 10)):
             if trail[j] is None or trail[j + 1] is None:
                 continue
-            
             dx = trail[j][0] - trail[j + 1][0]
             dy = trail[j][1] - trail[j + 1][1]
-            displacement = np.sqrt(dx**2 + dy**2)
-            total_displacement += displacement
-        
-        # Filter: hanya objek yang bergerak signifikan
+            total_displacement += np.sqrt(dx**2 + dy**2)
+
+        # Skip if not moving enough
         if total_displacement < movement_threshold:
             continue
-        
-        # Filter: hanya objek yang masih di bawah virtual line
+
+        # Determine if current position is below or above the virtual line
         is_below = is_point_below_line(current_pos, virtual_line[0], virtual_line[1])
-        if not is_below:
+        is_above = is_point_above_line(current_pos, virtual_line[0], virtual_line[1])
+
+        # If neither strictly above nor below, skip
+        if not (is_below or is_above):
             continue
-        
-        # Get class info
+
+        # Class info
         class_id = int(object_id[i])
         class_name = names[class_id]
-        
-        # Hitung arah gerakan (dari posisi terlama ke terbaru yang valid)
+
+        # Movement direction (from oldest valid to current)
         movement_direction = ""
         if len(trail) >= 2:
             oldest_pos = None
@@ -296,11 +302,9 @@ def get_significantly_moving_objects(data_deque, identities, object_id, names, v
                 if pos is not None:
                     oldest_pos = pos
                     break
-            
-            if oldest_pos is not None and current_pos is not None:
+            if oldest_pos is not None:
                 movement_direction = get_direction(current_pos, oldest_pos)
-        
-        # Buat Product instance
+
         product = Product(
             id=obj_id,
             class_id=class_id,
@@ -312,18 +316,15 @@ def get_significantly_moving_objects(data_deque, identities, object_id, names, v
             movement_direction=movement_direction,
             last_seen_frame=current_frame
         )
-        
-        # Tambahkan ke dictionary berdasarkan class name
-        if class_name not in moving_objects:
-            moving_objects[class_name] = {
-                'count': 0,
-                'objects': []
-            }
-        
-        moving_objects[class_name]['objects'].append(product)
-        moving_objects[class_name]['count'] += 1
-    
-    return moving_objects
+
+        target_group = 'below' if is_below else 'above'
+        if class_name not in groups[target_group]:
+            groups[target_group][class_name] = {'count': 0, 'objects': []}
+
+        groups[target_group][class_name]['objects'].append(product)
+        groups[target_group][class_name]['count'] += 1
+
+    return groups
 
 
 def draw_boxes(img, bbox, names, object_id, identities, data_deque, object_counter, object_counter1, line, counted_crossing_ids, stored_moving_objects=None, current_frame=0, offset=(0, 0)):
