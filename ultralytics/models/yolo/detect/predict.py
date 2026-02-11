@@ -61,6 +61,8 @@ stored_moving_objects = {}  # {class_name: Product}
 # Changed from set to dict to track last crossing direction (North/South)
 # This allows same ID to be counted for both taken (North) and returned (South)
 counted_crossing_ids = {}  # {ID: 'North' or 'South'} - Track last crossing direction
+# Track IDs that were seen below the line
+ids_below_line = set()  # IDs detected below virtual line
 
 # Set virtual line position based on camera position from config
 line = LINE_TOP_CAMERA if CAMERA_FROM_TOP else LINE_BOTTOM_CAMERA
@@ -295,105 +297,61 @@ class DetectionPredictor(BasePredictor):
                     if identities[idx] in id_mapping:
                         identities[idx] = id_mapping[identities[idx]]
                 
-                # if len(bbox_xyxy) > 0:
-                #     # Detect significantly moving objects below virtual line
-                #     current_moving = get_significantly_moving_objects(
-                #         data_deque=data_deque,
-                #         identities=identities,
-                #         object_id=object_id,
-                #         names=self.model.names,
-                #         virtual_line=line,
-                #         movement_threshold=30,
-                #         min_trail_length=5,
-                #         current_frame=frame if frame is not None else 0
-                #     )
-                
-                #     # Store moving objects info for future matching (only one object per class)
-                #     if current_moving:
-                #         for class_name, class_data in current_moving.items():
-                #             # Only keep one object per class (the first/latest one detected)
-                #             if class_data['objects']:
-                #                 # Store only the first Product instance from this class
-                #                 product = class_data['objects'][0]
-                #                 stored_moving_objects[class_name] = product
-                                
-                #                 # DEBUG: Write to file
-                #                 with open("debug_stored_moving_objects.txt", "a") as f:
-                #                     f.write(f"[STORED] {product}\n")
-                    
-                #     # Check objects above virtual line for reappearance
-                #     for idx, (bbox, identity, obj_class_id) in enumerate(zip(bbox_xyxy, identities, object_id)):
-                #         center_x = int((bbox[0] + bbox[2]) / 2)
-                #         center_y = int((bbox[1] + bbox[3]) / 2)
-                #         current_pos = (center_x, center_y)
+                if len(bbox_xyxy) > 0:
+                    # Track objects position relative to line
+                    for bbox, identity, obj_class_id in zip(bbox_xyxy, identities, object_id):
+                        center_x = int((bbox[0] + bbox[2]) / 2)
+                        center_y = int((bbox[1] + bbox[3]) / 2)
+                        current_pos = (center_x, center_y)
+                        identity = int(identity)
+                        obj_class_id = int(obj_class_id)
+                        class_name = self.model.names[obj_class_id]
                         
-                #         # Check if object is above virtual line
-                #         if is_point_above_line(current_pos, line[0], line[1]):
-                #             identity = int(identity)
-                #             obj_class_id = int(obj_class_id)
-                #             class_name = self.model.names[obj_class_id]
+                        # Track if object is below line
+                        if is_point_below_line(current_pos, line[0], line[1]):
+                            ids_below_line.add(identity)
+                        
+                        # If object was below line and now above line = taken (if not already counted as North)
+                        elif is_point_above_line(current_pos, line[0], line[1]) and identity in ids_below_line:
+                            last_direction = counted_crossing_ids.get(identity, None)
                             
-                #             # DEBUG: Write objects above virtual line with matching class
-                #             if class_name in stored_moving_objects:
-                #                 product = stored_moving_objects[class_name]
-                #                 original_id = product.id
-                #                 id_diff = abs(identity - original_id)
-                #                 with open("debug_above_line_objects.txt", "a") as f:
-                #                     f.write(f"[ABOVE LINE] Class: {class_name}, Current ID: {identity}, Original ID: {original_id}, ID Diff: {id_diff}, Position: {current_pos}, Already Mapped: {identity in id_mapping}\n")
-                            
-                #             # Check if this class has stored moving object
-                #             if class_name in stored_moving_objects:
-                #                 product = stored_moving_objects[class_name]
-                #                 original_id = product.id
-                                
-                #                 # Check if ID is different but within range (<=3 difference)
-                #                 id_diff = abs(identity - original_id)
-                #                 if identity != original_id and id_diff <= 3 and identity not in id_mapping:
-                #                     # Merge trail points: old trail + new trail
-                #                     if original_id in data_deque and identity in data_deque:
-                #                         # Combine trails using Product's merge_trail method
-                #                         new_trail = list(data_deque[identity])
-                                        
-                #                         # Update product's trail
-                #                         product.merge_trail(new_trail)
-                                        
-                #                         # Update deque with merged trail using original ID
-                #                         data_deque[original_id] = product.trail_points
-                                        
-                #                         # Remove new ID from deque
-                #                         if identity in data_deque:
-                #                             del data_deque[identity]
-                                        
-                #                         # Map new ID to original ID
-                #                         id_mapping[identity] = original_id
-                                        
-                #                         # Update bbox_xyxy, identities, and object_id arrays
-                #                         identities[idx] = original_id
-                                        
-                #                         # Update last seen frame
-                #                         product.last_seen_frame = frame if frame is not None else 0
-                                        
-                #                         # Increment taken counter (only if not counted before)
-                #                         if not product.taken_counted:
-                #                             obj_label = f"{class_name}"
-                #                             if obj_label not in object_counter:
-                #                                 object_counter[obj_label] = 0
-                #                             object_counter[obj_label] += 1
-                                            
-                #                             # Mark product as taken counted
-                #                             product.taken_counted = True
-                #                             counted_crossing_ids.add(original_id)
-                                            
-                #                             print(f"[REAPPEAR] {class_name} ID {identity} (diff:{id_diff}) merged with original ID {original_id} - Taken count: {object_counter[obj_label]}")
-                #                         else:
-                #                             print(f"[REAPPEAR] {class_name} ID {identity} (diff:{id_diff}) merged with original ID {original_id} - Already counted, skipping")
+                            # Count as taken if: never counted OR last was returned (South)
+                            # Prefer Product-level flag if available
+                            product = stored_moving_objects.get(class_name)
+                            if product and product.id == identity:
+                                # Only increment when product hasn't been marked as taken
+                                if not product.taken_counted:
+                                    obj_label = f"{class_name}"
+                                    if obj_label not in object_counter:
+                                        object_counter[obj_label] = 0
+                                    object_counter[obj_label] += 1
+                                    product.taken_counted = True
+                                    counted_crossing_ids[identity] = 'North'
+                                    # remove from below-line set to avoid duplicate counting
+                                    if identity in ids_below_line:
+                                        ids_below_line.discard(identity)
+                                    print(f"[TAKEN] {class_name} ID {identity} moved from below to above line - Taken count: {object_counter[obj_label]}")
+                                else:
+                                    # already counted at product level; skip
+                                    pass
+                            else:
+                                # Fallback: no Product info available, use last_direction logic
+                                if last_direction is None or last_direction == 'South':
+                                    obj_label = f"{class_name}"
+                                    if obj_label not in object_counter:
+                                        object_counter[obj_label] = 0
+                                    object_counter[obj_label] += 1
+                                    counted_crossing_ids[identity] = 'North'
+                                    # remove from below-line set to avoid duplicate counting
+                                    if identity in ids_below_line:
+                                        ids_below_line.discard(identity)
+                                    print(f"[TAKEN] {class_name} ID {identity} moved from below to above line - Taken count: {object_counter[obj_label]}")
                     
                     # Now draw boxes with potentially updated identities
                     draw_boxes(im0, bbox_xyxy, self.model.names, object_id, identities, data_deque, object_counter, object_counter1, line, counted_crossing_ids, stored_moving_objects, frame if frame is not None else 0)
             else:
                 # No tracking, just draw detections
                 self.plotted_img = result.plot()
-                im0 = self.plotted_img
                 im0 = self.plotted_img
         
         # Set plotted image with tracking results

@@ -362,56 +362,67 @@ def draw_boxes(img, bbox, names, object_id, identities, data_deque, object_count
               
             # Logic based on camera position
             if "North" in direction:
-                # Count taken - allow if: (1) never counted OR (2) last count was South (returned)
-                # Use dict to track last crossing direction instead of just set
+                # Count taken - prefer Product-level flag if available
                 last_direction = counted_crossing_ids.get(id, None) if isinstance(counted_crossing_ids, dict) else None
-                
-                if id not in counted_crossing_ids or (isinstance(counted_crossing_ids, dict) and last_direction == 'South'):
-                    obj_label = f"{obj_name}"
-                    
-                    if obj_label not in object_counter:
-                        object_counter[obj_label] = 1
-                    else:
-                        object_counter[obj_label] += 1
-                    
-                    # Mark this ID's last crossing direction as North (taken)
-                    if isinstance(counted_crossing_ids, dict):
-                        counted_crossing_ids[id] = 'North'
-                    else:
-                        counted_crossing_ids.add(id)
-                    
-                    # Update Product taken_counted flag if exists
-                    if stored_moving_objects and obj_name in stored_moving_objects:
-                        product = stored_moving_objects[obj_name]
-                        if product.id == id:
+
+                if stored_moving_objects and obj_name in stored_moving_objects:
+                    product = stored_moving_objects[obj_name]
+                    if product.id == id:
+                        # Only count if product not yet counted as taken
+                        if not product.taken_counted and (last_direction is None or last_direction == 'South'):
+                            obj_label = f"{obj_name}"
+                            if obj_label not in object_counter:
+                                object_counter[obj_label] = 1
+                            else:
+                                object_counter[obj_label] += 1
                             product.taken_counted = True
                             product.last_seen_frame = current_frame
+                            if isinstance(counted_crossing_ids, dict):
+                                counted_crossing_ids[id] = 'North'
+                            else:
+                                counted_crossing_ids.add(id)
+                else:
+                    # Fallback when no Product info: use last_direction logic
+                    if id not in counted_crossing_ids or (isinstance(counted_crossing_ids, dict) and last_direction == 'South'):
+                        obj_label = f"{obj_name}"
+                        if obj_label not in object_counter:
+                            object_counter[obj_label] = 1
+                        else:
+                            object_counter[obj_label] += 1
+                        if isinstance(counted_crossing_ids, dict):
+                            counted_crossing_ids[id] = 'North'
+                        else:
+                            counted_crossing_ids.add(id)
                     
             if "South" in direction:
-                # Count returned - allow if: (1) never counted OR (2) last count was North (taken)
-                # This allows same ID to be counted as both taken and returned
+                # Count returned - prefer Product-level flag if available
                 last_direction = counted_crossing_ids.get(id, None) if isinstance(counted_crossing_ids, dict) else None
-                
-                if id not in counted_crossing_ids or (isinstance(counted_crossing_ids, dict) and last_direction == 'North'):
-                    obj_label = obj_name
-                    
-                    if obj_label not in object_counter1:
-                        object_counter1[obj_label] = 1
-                    else:
-                        object_counter1[obj_label] += 1
-                    
-                    # Mark this ID's last crossing direction as South (returned)
-                    if isinstance(counted_crossing_ids, dict):
-                        counted_crossing_ids[id] = 'South'
-                    else:
-                        counted_crossing_ids.add(id)
-                    
-                    # Update Product return_counted flag if exists
-                    if stored_moving_objects and obj_name in stored_moving_objects:
-                        product = stored_moving_objects[obj_name]
-                        if product.id == id:
+
+                if stored_moving_objects and obj_name in stored_moving_objects:
+                    product = stored_moving_objects[obj_name]
+                    if product.id == id:
+                        # Only count returned if the product was previously counted as taken
+                        if product.taken_counted and not product.return_counted and (last_direction is None or last_direction == 'North'):
+                            obj_label = obj_name
+                            if obj_label not in object_counter1:
+                                object_counter1[obj_label] = 1
+                            else:
+                                object_counter1[obj_label] += 1
                             product.return_counted = True
                             product.last_seen_frame = current_frame
+                            if isinstance(counted_crossing_ids, dict):
+                                counted_crossing_ids[id] = 'South'
+                            else:
+                                counted_crossing_ids.add(id)
+                else:
+                    # Fallback when no Product info: require that last_direction was North
+                    if isinstance(counted_crossing_ids, dict) and last_direction == 'North':
+                        obj_label = obj_name
+                        if obj_label not in object_counter1:
+                            object_counter1[obj_label] = 1
+                        else:
+                            object_counter1[obj_label] += 1
+                        counted_crossing_ids[id] = 'South'
 
         UI_box(box, img, label=label, color=color, line_thickness=2)
         # draw trail

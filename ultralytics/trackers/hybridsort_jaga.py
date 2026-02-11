@@ -1,456 +1,447 @@
-# Ultralytics YOLO 🚀, GPL-3.0 license
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
-import re
-import cv2
-import torch
-import mediapipe as mp
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
+from __future__ import annotations
 
-from ultralytics.engine.predictor import BasePredictor
-from ultralytics.engine.results import Results
-from ultralytics.utils import ops, nms
-from ultralytics.utils.plotting import Annotator
+from typing import Any
+from collections import Counter
 
-from ultralytics.trackers.deep_sort_pytorch.utils.parser import get_config
-from ultralytics.trackers.deep_sort_pytorch.deep_sort import DeepSort
-from ultralytics.models.yolo.detect.helper import (
-    draw_landmarks_on_image, 
-    xyxy_to_xywh, 
-    draw_boxes,
-    get_significantly_moving_objects,
-    is_point_above_line,
-    is_point_below_line
-)
-from ultralytics.models.yolo.detect.product import Product
-from ultralytics.models.yolo.detect.config import (
-    HAND_LANDMARKER_MODEL_PATH, NUM_HANDS,
-    USE_DEEPSORT, DEEPSORT_CONFIG_PATH, DEEPSORT_REID_CKPT,
-    CAMERA_FROM_TOP, LINE_TOP_CAMERA, LINE_BOTTOM_CAMERA,
-    LINE_COLOR_MAIN, LINE_THICKNESS,
-    UI_LEFT_MARGIN, UI_RIGHT_MARGIN, UI_TOP_MARGIN, UI_LINE_HEIGHT,
-    UI_BOX_WIDTH, UI_BOX_COLOR, UI_TEXT_COLOR, UI_TEXT_THICKNESS,
-    DEFAULT_FPS,
-)
+import numpy as np
 
-mp_hands = mp.tasks.vision.HandLandmarksConnections
-mp_drawing = mp.tasks.vision.drawing_utils
-mp_drawing_styles = mp.tasks.vision.drawing_styles
+from .basetrack import BaseTrack
+from .byte_tracker import BYTETracker
+from .hybrid_sort.hybrid_sort import Hybrid_Sort as HybridSort_
 
-# Initialize MediaPipe Hand Landmarker with config values
-base_options = python.BaseOptions(model_asset_path=HAND_LANDMARKER_MODEL_PATH)
-options = vision.HandLandmarkerOptions(
-    base_options=base_options,
-    num_hands=NUM_HANDS,
-    running_mode=vision.RunningMode.VIDEO
-)
-detector = vision.HandLandmarker.create_from_options(options)
 
-# Global state variables
-data_deque = {}
-deepsort = None
-object_counter = {}
-object_counter1 = {}
-moving_objects = None
-# Store mapping of old_id -> new_id for objects that reappeared
-id_mapping = {}
-# Store original moving Product instances by class name
-stored_moving_objects = {}  # {class_name: Product}
-# Track IDs that have been counted to prevent duplicate counting
-# Changed from set to dict to track last crossing direction (North/South)
-# This allows same ID to be counted for both taken (North) and returned (South)
-counted_crossing_ids = {}  # {ID: 'North' or 'South'} - Track last crossing direction
-
-# Set virtual line position based on camera position from config
-line = LINE_TOP_CAMERA if CAMERA_FROM_TOP else LINE_BOTTOM_CAMERA
-
-def init_tracker():
-    global deepsort
-    cfg_deep = get_config()
-    cfg_deep.merge_from_file(DEEPSORT_CONFIG_PATH)
+class HybridSORT(BYTETracker):
+    """HybridSORT tracker wrapper for Ultralytics YOLO framework.
     
-    # Override REID_CKPT with absolute path from config
-    cfg_deep.DEEPSORT.REID_CKPT = DEEPSORT_REID_CKPT
-
-    deepsort= DeepSort(cfg_deep.DEEPSORT.REID_CKPT,
-                            max_dist=cfg_deep.DEEPSORT.MAX_DIST, min_confidence=cfg_deep.DEEPSORT.MIN_CONFIDENCE,
-                            nms_max_overlap=cfg_deep.DEEPSORT.NMS_MAX_OVERLAP, max_iou_distance=cfg_deep.DEEPSORT.MAX_IOU_DISTANCE,
-                            max_age=cfg_deep.DEEPSORT.MAX_AGE, n_init=cfg_deep.DEEPSORT.N_INIT, nn_budget=cfg_deep.DEEPSORT.NN_BUDGET,
-                            use_cuda=True)
-
-
-class DetectionPredictor(BasePredictor):
-    """A class extending the BasePredictor class for prediction based on a detection model.
-
-    This predictor specializes in object detection tasks, processing model outputs into meaningful detection results
-    with bounding boxes and class predictions.
-
+    An extended version of BYTETracker that uses the HybridSORT algorithm combining
+    SORT with improved association strategies, velocity prediction, and multi-stage matching.
+    
+    This class wraps the original HybridSORT implementation to be compatible with Ultralytics YOLO's
+    tracking pipeline, converting between Ultralytics Results format and HybridSORT's expected format.
+    
     Attributes:
-        args (namespace): Configuration arguments for the predictor.
-        model (nn.Module): The detection model used for inference.
-        batch (list): Batch of images and metadata for processing.
-
+        hybrid_sort (HybridSort_): The underlying HybridSORT tracker instance.
+        args (Any): Parsed command-line arguments containing tracking parameters.
+        frame_id (int): Current frame number.
+    
     Methods:
-        postprocess: Process raw model predictions into detection results.
-        construct_results: Build Results objects from processed predictions.
-        construct_result: Create a single Result object from a prediction.
-        get_obj_feats: Extract object features from the feature maps.
-
+        update: Update tracker with new detections from Ultralytics Results.
+        reset: Reset the tracker to its initial state.
+        
     Examples:
-        >>> from ultralytics.utils import ASSETS
-        >>> from ultralytics.models.yolo.detect import DetectionPredictor
-        >>> args = dict(model="yolo26n.pt", source=ASSETS)
-        >>> predictor = DetectionPredictor(overrides=args)
-        >>> predictor.predict_cli()
+        Initialize HybridSORT and process detections
+        >>> tracker = HybridSORT(args, frame_rate=30)
+        >>> results = yolo_model.detect(image)
+        >>> tracked_objects = tracker.update(results, image)
+    
+    Notes:
+        HybridSORT improves upon SORT and ByteTrack by using 4-point velocity prediction
+        and trajectory-based confidence modulation for better tracking performance.
     """
-    
-    def setup_model(self, model, verbose=True):
-        """Initialize tracker when setting up the model."""
-        global deepsort
-        if USE_DEEPSORT and deepsort is None:
-            init_tracker()
-        super().setup_model(model, verbose)
 
-    def get_annotator(self, img):
-        return Annotator(img, line_width=self.args.line_thickness, example=str(self.model.names))
-
-
-    def postprocess(self, preds, img, orig_imgs, **kwargs):
-        """Post-process predictions and return a list of Results objects.
-
-        This method applies non-maximum suppression to raw model predictions and prepares them for visualization and
-        further analysis.
-
+    def __init__(self, args: Any, frame_rate: int = 30):
+        """Initialize HybridSORT tracker with configuration parameters.
+        
         Args:
-            preds (torch.Tensor): Raw predictions from the model.
-            img (torch.Tensor): Processed input image tensor in model input format.
-            orig_imgs (torch.Tensor | list): Original input images before preprocessing.
-            **kwargs (Any): Additional keyword arguments.
-
-        Returns:
-            (list): List of Results objects containing the post-processed predictions.
-
-        Examples:
-            >>> predictor = DetectionPredictor(overrides=dict(model="yolo26n.pt"))
-            >>> results = predictor.predict("path/to/image.jpg")
-            >>> processed_results = predictor.postprocess(preds, img, orig_imgs)
+            args (Any): Configuration namespace containing tracking parameters:
+                - det_thresh (float): Detection confidence threshold
+                - max_age (int): Maximum frames to keep lost tracks
+                - min_hits (int): Minimum hits to start a track
+                - iou_threshold (float): IoU threshold for matching
+                - delta_t (int): Time steps for velocity estimation
+                - asso_func (str): Association function ('iou', 'giou', 'ciou', 'diou', 'ct_dist', 'Height_Modulated_IoU')
+                - inertia (float): Inertia weight for velocity-based prediction
+                - use_byte (bool): Enable ByteTrack-style second association
+                - TCM_first_step (bool): Enable Trajectory Confidence Modulation in first matching step
+                - TCM_byte_step (bool): Enable Trajectory Confidence Modulation in byte matching step
+                - TCM_byte_step_weight (float): Weight for TCM in byte step
+            frame_rate (int): Frame rate of the video sequence.
         """
-        save_feats = getattr(self, "_feats", None) is not None
-        preds = nms.non_max_suppression(
-            preds,
-            self.args.conf,
-            self.args.iou,
-            self.args.classes,
-            self.args.agnostic_nms,
-            max_det=self.args.max_det,
-            nc=0 if self.args.task == "detect" else len(self.model.names),
-            end2end=getattr(self.model, "end2end", False),
-            rotated=self.args.task == "obb",
-            return_idxs=save_feats,
+        # Initialize parent BYTETracker (for compatibility)
+        super().__init__(args, frame_rate)
+        
+        # Set default values for HybridSORT-specific parameters
+        if not hasattr(args, 'TCM_first_step'):
+            args.TCM_first_step = True
+        if not hasattr(args, 'TCM_first_step_weight'):
+            args.TCM_first_step_weight = 0.5
+        if not hasattr(args, 'TCM_byte_step'):
+            args.TCM_byte_step = True
+        if not hasattr(args, 'TCM_byte_step_weight'):
+            args.TCM_byte_step_weight = 0.5
+        if not hasattr(args, 'track_thresh'):
+            args.track_thresh = 0.5
+        
+        # Initialize the core HybridSORT tracker
+        self.hybrid_sort = HybridSort_(
+            args=args,
+            det_thresh=getattr(args, 'det_thresh', 0.25),
+            max_age=getattr(args, 'max_age', 30),
+            min_hits=getattr(args, 'min_hits', 3),
+            iou_threshold=getattr(args, 'iou_threshold', 0.3),
+            delta_t=getattr(args, 'delta_t', 3),
+            asso_func=getattr(args, 'asso_func', 'iou'),
+            inertia=getattr(args, 'inertia', 0.2),
+            use_byte=getattr(args, 'use_byte', False)
         )
-
-        if not isinstance(orig_imgs, list):  # input images are a torch.Tensor, not a list
-            orig_imgs = ops.convert_torch2numpy_batch(orig_imgs)[..., ::-1]
-
-        if save_feats:
-            obj_feats = self.get_obj_feats(self._feats, preds[1])
-            preds = preds[0]
-
-        results = self.construct_results(preds, img, orig_imgs, **kwargs)
-
-        if save_feats:
-            for r, f in zip(results, obj_feats):
-                r.feats = f  # add object features to results
-
-        return results
-    
-    def write_results(self, i, p, im, s):
-        """Write detection results with tracking."""
-        string = ""
-        if len(im.shape) == 3:
-            im = im[None]  # expand for batch dim
         
-        # Determine if streaming/webcam source
-        if self.source_type.stream or self.source_type.from_img or self.source_type.tensor:
-            string += f"{i}: "
-            frame = self.dataset.count
+        self.args = args
+        self.frame_id = 0
+        
+        # Lost tracks management
+        self.lost_tracks = {}  # {track_id: {'last_frame': frame_id, 'cls': class_id}}
+        self.max_lost_time = 90  # Keep lost tracks for 90 frames
+        
+        # Track appearance history for filtering noise
+        self.track_history = {}  # {track_id: [frame_ids where it appeared]}
+        
+        # Track last known class for each track ID
+        self.track_last_class = {}  # {track_id: class_id}
+
+        # Track class history for each track ID (most recent classes seen)
+        # {track_id: [class_id1, class_id2, ...]}
+        self.track_class_history = {}
+
+    def update(self, results, img: np.ndarray | None = None, feats: np.ndarray | None = None) -> np.ndarray:
+        """Update tracker with new detections and return tracked objects.
+        
+        This method converts Ultralytics Results to HybridSORT format, runs the tracking algorithm,
+        and converts the output back to Ultralytics format.
+        
+        Args:
+            results: Ultralytics Results object containing:
+                - xyxy: Bounding boxes in (x1, y1, x2, y2) format
+                - conf: Detection confidence scores
+                - cls: Class labels
+            img (np.ndarray, optional): Current frame image (used for img_info).
+            feats (np.ndarray, optional): Feature vectors (not used in HybridSORT).
+        
+        Returns:
+            (np.ndarray): Tracked objects in format [x1, y1, x2, y2, track_id, score, cls, idx]
+                Shape: (N, 8) where N is the number of tracked objects.
+        
+        Examples:
+            >>> results = model.predict(frame)
+            >>> tracks = tracker.update(results[0], frame)
+            >>> for track in tracks:
+            ...     x1, y1, x2, y2, track_id, score, cls, idx = track
+        """
+        self.frame_id += 1
+        
+        # Get image info for HybridSORT - must be plain Python list/tuple with int values
+        if img is not None:
+            h, w = img.shape[:2]
+            img_info = [int(h), int(w)]  # Convert to Python int, not numpy int
+            img_size = [int(h), int(w)]  # HybridSORT expects same format
         else:
-            match = re.search(r"frame (\d+)/", s[i])
-            frame = int(match[1]) if match else None
-
-        self.txt_path = self.save_dir / "labels" / (p.stem + ("" if self.dataset.mode == "image" else f"_{frame}"))
-        string += "{:g}x{:g} ".format(*im.shape[2:])
+            # Fallback if no image provided
+            img_info = [640, 640]
+            img_size = [640, 640]
         
-        result = self.results[i]
-        result.save_dir = self.save_dir.__str__()
-        im0 = result.orig_img.copy()
+        # Handle empty detections
+        if len(results) == 0:
+            # Call HybridSORT update with empty array to maintain tracker state
+            self.hybrid_sort.update(np.empty((0, 5)), img_info, img_size)
+            return np.empty((0, 8))
         
-        # HAND LANDMARK DETECTION
-        # Convert BGR to RGB for MediaPipe
-        rgb_frame = cv2.cvtColor(im0, cv2.COLOR_BGR2RGB)
+        # Convert Ultralytics Results to HybridSORT format
+        # Handle both tensor and numpy array inputs - make copies to avoid in-place modifications
+        xyxy = results.xyxy.cpu().numpy().copy() if hasattr(results.xyxy, 'cpu') else np.array(results.xyxy, copy=True)
+        conf = results.conf.cpu().numpy().copy() if hasattr(results.conf, 'cpu') else np.array(results.conf, copy=True)
+        cls = results.cls.cpu().numpy().copy() if hasattr(results.cls, 'cpu') else np.array(results.cls, copy=True)
         
-        # Create MediaPipe Image
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+        # Prepare detections in HybridSORT format: [x1, y1, x2, y2, score]
+        # Ensure all data is contiguous numpy arrays with proper dtype
+        detections = np.ascontiguousarray(
+            np.concatenate([xyxy, conf[:, None]], axis=1), 
+            dtype=np.float64
+        )
         
-        # Calculate timestamp in milliseconds
-        timestamp_ms = int(frame * 1000 / DEFAULT_FPS) if frame is not None else 0
+        # Run HybridSORT tracking
+        # HybridSORT expects img_info and img_size, returns: [x1, y1, x2, y2, track_id, cls, frame_offset]
+        tracks = self.hybrid_sort.update(detections, img_info, img_size)
         
-        # Detect hand landmarks
-        try:
-            detection_result = detector.detect_for_video(mp_image, timestamp_ms)
+        # Clean up old lost tracks (older than max_lost_time frames)
+        lost_ids_to_remove = []
+        for track_id, track_info in self.lost_tracks.items():
+            if self.frame_id - track_info['last_frame'] > self.max_lost_time:
+                lost_ids_to_remove.append(track_id)
+        for track_id in lost_ids_to_remove:
+            del self.lost_tracks[track_id]
+            # Also remove from history
+            if track_id in self.track_history:
+                del self.track_history[track_id]
+        
+        # Handle no tracks returned
+        if len(tracks) == 0:
+            return np.empty((0, 8))
+        
+        # Convert HybridSORT output to Ultralytics format
+        # HybridSORT returns: [x1, y1, x2, y2, track_id, cls, frame_offset] (7 columns)
+        # Ultralytics needs: [x1, y1, x2, y2, track_id, score, cls, idx]
+        
+        # Create output array
+        output_tracks = np.zeros((len(tracks), 8))
+        output_tracks[:, :5] = tracks[:, :5]  # [x1, y1, x2, y2, track_id]
+        
+        # Track current frame's track IDs
+        current_track_ids = set()
+        
+        # For each track, find the best matching detection to get scores and class
+        for i, track in enumerate(tracks):
+            track_box = track[:4]
+            track_id = int(track[4])
+            current_track_ids.add(track_id)
             
-            # Draw landmarks on RGB frame
-            annotated_rgb = draw_landmarks_on_image(rgb_frame, detection_result)
+            # Get class from detection by finding best IoU match
+            # (We need this for ID recovery logic)
+            track_cls = -1
+            if len(cls) > 0:
+                ious = self._calculate_iou(track_box, xyxy)
+                if len(ious) > 0:
+                    best_match_idx = np.argmax(ious)
+                    if ious[best_match_idx] > 0.01:
+                        track_cls = int(cls[best_match_idx])
             
-            # Convert back to BGR for OpenCV
-            im0 = cv2.cvtColor(annotated_rgb, cv2.COLOR_RGB2BGR)
-        except Exception as e:
-            # If hand detection fails, continue with original image
-            print(f"Hand detection error: {e}")
-            pass
-        
-        # Get predictions for this image
-        det = result.boxes.data  # xyxy, conf, cls
-
-        # Draw reference lines
-        cv2.line(im0, line[0], line[1], LINE_COLOR_MAIN, LINE_THICKNESS)
-    
-        height, width, _ = im0.shape
-
-        # Display Count - Left: Products Taken, Right: Products Returned
-        for idx, (key, value) in enumerate(object_counter.items()):
-            cnt_str = str(key) + ":" +str(value)
-            cv2.line(im0, (UI_LEFT_MARGIN, UI_TOP_MARGIN), (UI_BOX_WIDTH, UI_TOP_MARGIN), UI_BOX_COLOR, UI_LINE_HEIGHT)
-            cv2.putText(im0, f'Numbers of Products Taken', (11, 35), 0, 1, UI_TEXT_COLOR, thickness=UI_TEXT_THICKNESS, lineType=cv2.LINE_AA)    
-            cv2.line(im0, (UI_LEFT_MARGIN, 65 + (idx * UI_LINE_HEIGHT)), (UI_BOX_WIDTH, 65 + (idx * UI_LINE_HEIGHT)), UI_BOX_COLOR, 30)
-            cv2.putText(im0, cnt_str, (11, 75 + (idx * UI_LINE_HEIGHT)), 0, 1, UI_TEXT_COLOR, thickness=UI_TEXT_THICKNESS, lineType=cv2.LINE_AA)
-
-        for idx, (key, value) in enumerate(object_counter1.items()):
-            cnt_str1 = str(key) + ":" +str(value)
-            cv2.line(im0, (width - 600, UI_TOP_MARGIN), (width - UI_RIGHT_MARGIN, UI_TOP_MARGIN), UI_BOX_COLOR, UI_LINE_HEIGHT)
-            cv2.putText(im0, f'Number of Products Returned', (width - 600, 35), 0, 1, UI_TEXT_COLOR, thickness=UI_TEXT_THICKNESS, lineType=cv2.LINE_AA)
-            cv2.line(im0, (width - 600, 65 + (idx * UI_LINE_HEIGHT)), (width - UI_RIGHT_MARGIN, 65 + (idx * UI_LINE_HEIGHT)), UI_BOX_COLOR, 30)
-            cv2.putText(im0, cnt_str1, (width - 600, 75 + (idx * UI_LINE_HEIGHT)), 0, 1, [255, 255, 255], thickness=UI_TEXT_THICKNESS, lineType=cv2.LINE_AA)
-    
-        # Display frame number at bottom right
-        frame_text = f"Frame: {frame if frame is not None else 0}"
-        text_size = cv2.getTextSize(frame_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
-        text_x = width - text_size[0] - 15
-        text_y = height - 15
-        cv2.putText(im0, frame_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, [255, 255, 255], thickness=2, lineType=cv2.LINE_AA)
-        
-        if len(det) == 0:
-            string += f"{result.verbose()}{result.speed['inference']:.1f}ms"
-            # Set plotted image with line and counters even when no detections
-            self.plotted_img = im0
-            if self.args.save_txt:
-                result.save_txt(f"{self.txt_path}.txt", save_conf=self.args.save_conf)
-            if self.args.save_crop:
-                result.save_crop(save_dir=self.save_dir / "crops", file_name=self.txt_path.stem)
-            if self.args.show:
-                self.show(str(p))
-            if self.args.save:
-                self.save_predicted_images(self.save_dir / p.name, frame)
-            return string
+            # Check if this track was previously lost and is now re-appearing
+            # Match based on: same class + ID difference <= 3
+            matched_lost_id = None
+            min_id_diff = float('inf')
             
-        for c in det[:, 5].unique():
-            n = (det[:, 5] == c).sum()
-            string += f"{n} {self.model.names[int(c)]}{'s' * (n > 1)}, "
-        
-        if USE_DEEPSORT:
-            # DeepSort tracking
-            xywh_bboxs = []
-            confs = []
-            oids = []
+            for lost_id, lost_info in self.lost_tracks.items():
+                if lost_id not in current_track_ids:  # Don't re-use IDs already in use
+                    # Check if class matches
+                    if track_cls == lost_info['cls']:
+                        # Check if ID difference is <= 3
+                        id_diff = abs(track_id - lost_id)
+                        if id_diff <= 3 and id_diff < min_id_diff:
+                            min_id_diff = id_diff
+                            matched_lost_id = lost_id
             
-            for *xyxy, conf, cls in det:
-                x_c, y_c, bbox_w, bbox_h = xyxy_to_xywh(*xyxy)
-                xywh_obj = [x_c, y_c, bbox_w, bbox_h]
-                xywh_bboxs.append(xywh_obj)
-                confs.append([conf.item()])
-                oids.append(int(cls))
-            
-            if len(xywh_bboxs) > 0:
-                xywhs = torch.Tensor(xywh_bboxs)
-                confss = torch.Tensor(confs)
+            # If matched with lost track, use the old ID
+            if matched_lost_id is not None:
+                output_tracks[i, 4] = matched_lost_id  # Override with old track_id
                 
-                outputs = deepsort.update(xywhs, confss, oids, im0)
-                if len(outputs) > 0:
-                    bbox_xyxy = outputs[:, :4]
-                    identities = outputs[:, -2]
-                    object_id = outputs[:, -1]
-                    
-                    draw_boxes(im0, bbox_xyxy, self.model.names, object_id, identities, data_deque, object_counter, object_counter1, line, counted_crossing_ids, stored_moving_objects, frame if frame is not None else 0)
-        else:
-            # Use built-in Ultralytics tracker
-            if hasattr(result, 'boxes') and result.boxes.id is not None:
-                # Get tracking IDs from built-in tracker
-                bbox_xyxy = result.boxes.xyxy.cpu().numpy()
-                identities = result.boxes.id.cpu().numpy().astype(int)
-                object_id = result.boxes.cls.cpu().numpy().astype(int)
+                # CRITICAL: Also update the internal tracker's ID so it persists in future frames
+                # Find the tracker object that corresponds to this track
+                for trk in self.hybrid_sort.trackers:
+                    if trk.id + 1 == track_id:  # +1 because HybridSORT adds 1 to the ID
+                        trk.id = matched_lost_id - 1  # -1 because it will be +1 again in output
+                        break
                 
-                # Apply ID mapping persistently (map new IDs back to original IDs)
-                for idx in range(len(identities)):
-                    if identities[idx] in id_mapping:
-                        identities[idx] = id_mapping[identities[idx]]
-                
-                # if len(bbox_xyxy) > 0:
-                #     # Detect significantly moving objects below virtual line
-                #     current_moving = get_significantly_moving_objects(
-                #         data_deque=data_deque,
-                #         identities=identities,
-                #         object_id=object_id,
-                #         names=self.model.names,
-                #         virtual_line=line,
-                #         movement_threshold=30,
-                #         min_trail_length=5,
-                #         current_frame=frame if frame is not None else 0
-                #     )
-                
-                #     # Store moving objects info for future matching (only one object per class)
-                #     if current_moving:
-                #         for class_name, class_data in current_moving.items():
-                #             # Only keep one object per class (the first/latest one detected)
-                #             if class_data['objects']:
-                #                 # Store only the first Product instance from this class
-                #                 product = class_data['objects'][0]
-                #                 stored_moving_objects[class_name] = product
-                                
-                #                 # DEBUG: Write to file
-                #                 with open("debug_stored_moving_objects.txt", "a") as f:
-                #                     f.write(f"[STORED] {product}\n")
-                    
-                #     # Check objects above virtual line for reappearance
-                #     for idx, (bbox, identity, obj_class_id) in enumerate(zip(bbox_xyxy, identities, object_id)):
-                #         center_x = int((bbox[0] + bbox[2]) / 2)
-                #         center_y = int((bbox[1] + bbox[3]) / 2)
-                #         current_pos = (center_x, center_y)
-                        
-                #         # Check if object is above virtual line
-                #         if is_point_above_line(current_pos, line[0], line[1]):
-                #             identity = int(identity)
-                #             obj_class_id = int(obj_class_id)
-                #             class_name = self.model.names[obj_class_id]
-                            
-                #             # DEBUG: Write objects above virtual line with matching class
-                #             if class_name in stored_moving_objects:
-                #                 product = stored_moving_objects[class_name]
-                #                 original_id = product.id
-                #                 id_diff = abs(identity - original_id)
-                #                 with open("debug_above_line_objects.txt", "a") as f:
-                #                     f.write(f"[ABOVE LINE] Class: {class_name}, Current ID: {identity}, Original ID: {original_id}, ID Diff: {id_diff}, Position: {current_pos}, Already Mapped: {identity in id_mapping}\n")
-                            
-                #             # Check if this class has stored moving object
-                #             if class_name in stored_moving_objects:
-                #                 product = stored_moving_objects[class_name]
-                #                 original_id = product.id
-                                
-                #                 # Check if ID is different but within range (<=3 difference)
-                #                 id_diff = abs(identity - original_id)
-                #                 if identity != original_id and id_diff <= 3 and identity not in id_mapping:
-                #                     # Merge trail points: old trail + new trail
-                #                     if original_id in data_deque and identity in data_deque:
-                #                         # Combine trails using Product's merge_trail method
-                #                         new_trail = list(data_deque[identity])
-                                        
-                #                         # Update product's trail
-                #                         product.merge_trail(new_trail)
-                                        
-                #                         # Update deque with merged trail using original ID
-                #                         data_deque[original_id] = product.trail_points
-                                        
-                #                         # Remove new ID from deque
-                #                         if identity in data_deque:
-                #                             del data_deque[identity]
-                                        
-                #                         # Map new ID to original ID
-                #                         id_mapping[identity] = original_id
-                                        
-                #                         # Update bbox_xyxy, identities, and object_id arrays
-                #                         identities[idx] = original_id
-                                        
-                #                         # Update last seen frame
-                #                         product.last_seen_frame = frame if frame is not None else 0
-                                        
-                #                         # Increment taken counter (only if not counted before)
-                #                         if not product.taken_counted:
-                #                             obj_label = f"{class_name}"
-                #                             if obj_label not in object_counter:
-                #                                 object_counter[obj_label] = 0
-                #                             object_counter[obj_label] += 1
-                                            
-                #                             # Mark product as taken counted
-                #                             product.taken_counted = True
-                #                             counted_crossing_ids.add(original_id)
-                                            
-                #                             print(f"[REAPPEAR] {class_name} ID {identity} (diff:{id_diff}) merged with original ID {original_id} - Taken count: {object_counter[obj_label]}")
-                #                         else:
-                #                             print(f"[REAPPEAR] {class_name} ID {identity} (diff:{id_diff}) merged with original ID {original_id} - Already counted, skipping")
-                    
-                    # Now draw boxes with potentially updated identities
-                    draw_boxes(im0, bbox_xyxy, self.model.names, object_id, identities, data_deque, object_counter, object_counter1, line, counted_crossing_ids, stored_moving_objects, frame if frame is not None else 0)
+                # Remove from lost tracks since it's now found
+                del self.lost_tracks[matched_lost_id]
+                current_track_ids.add(matched_lost_id)
+                current_track_ids.discard(track_id)  # Remove new ID
+                track_id = matched_lost_id  # Update for history tracking
+            
+            # Update track history
+            if track_id not in self.track_history:
+                self.track_history[track_id] = []
+            self.track_history[track_id].append(self.frame_id)
+            
+            # Calculate IoU with all detections
+            ious = self._calculate_iou(track_box, xyxy)
+            
+            # Get the detection with highest IoU
+            if len(ious) > 0:
+                best_match_idx = np.argmax(ious)
+                if ious[best_match_idx] > 0.01:  # If there's a reasonable match
+                    output_tracks[i, 5] = conf[best_match_idx]  # score
+                    output_tracks[i, 7] = best_match_idx        # detection index
+                    raw_class = int(cls[best_match_idx])
+                else:
+                    # Use class from HybridSORT if available (column 5)
+                    output_tracks[i, 5] = 0.5  # default score
+                    raw_class = int(track_cls) if track_cls != -1 else 0
+                    output_tracks[i, 7] = i    # default index
             else:
-                # No tracking, just draw detections
-                self.plotted_img = result.plot()
-                im0 = self.plotted_img
-                im0 = self.plotted_img
+                # Fallback if no matches
+                output_tracks[i, 5] = 0.5  # default score
+                raw_class = int(track_cls) if track_cls != -1 else 0
+                output_tracks[i, 7] = i    # default index
+
+            # Update class history for this track (store raw per-frame class)
+            if track_id not in self.track_class_history:
+                self.track_class_history[track_id] = []
+            self.track_class_history[track_id].append(int(raw_class))
+            # Keep history bounded to last 50 entries
+            if len(self.track_class_history[track_id]) > 50:
+                self.track_class_history[track_id].pop(0)
+
+            # Determine displayed class as the mode of the last up to 5 classes
+            last_classes = self.track_class_history[track_id][-5:]
+            try:
+                display_class = int(Counter(last_classes).most_common(1)[0][0])
+            except Exception:
+                display_class = int(raw_class)
+
+            output_tracks[i, 6] = display_class
         
-        # Set plotted image with tracking results
-        self.plotted_img = im0
+        # Store last known class for all current tracks
+        for i, track in enumerate(output_tracks):
+            track_id = int(track[4])
+            class_id = int(track[6])
+            self.track_last_class[track_id] = class_id
         
-        # Save and show with tracking results
-        if self.args.save_txt:
-            result.save_txt(f"{self.txt_path}.txt", save_conf=self.args.save_conf)
-        if self.args.save_crop:
-            result.save_crop(save_dir=self.save_dir / "crops", file_name=self.txt_path.stem)
-        if self.args.show:
-            self.show(str(p))
-        if self.args.save:
-            self.save_predicted_images(self.save_dir / p.name, frame)
-            
-        string += f"{result.speed['inference']:.1f}ms"
-        return string
+        # Update lost_tracks: Add tracks that disappeared and meet the appearance criteria
+        # Only add tracks with at least 8 appearances in the last 15 frames
+        previous_track_ids = set(self.lost_tracks.keys()) | set(self.track_history.keys())
+        missing_track_ids = previous_track_ids - current_track_ids
+        
+        for track_id in missing_track_ids:
+            if track_id in self.track_history:
+                # Check appearance count in last 15 frames
+                recent_frames = [f for f in self.track_history[track_id] if self.frame_id - f <= 15]
+                if len(recent_frames) >= 8:
+                    # This track has appeared at least 8 times in last 15 frames
+                    # Get the last known class
+                    # Prefer mode of last up to 5 classes seen for stability
+                    if track_id in self.track_class_history and len(self.track_class_history[track_id]) > 0:
+                        last_classes = self.track_class_history[track_id][-5:]
+                        try:
+                            track_cls = int(Counter(last_classes).most_common(1)[0][0])
+                        except Exception:
+                            track_cls = int(self.track_last_class.get(track_id, self.lost_tracks.get(track_id, {}).get('cls', 0)))
+                    elif track_id in self.track_last_class:
+                        track_cls = self.track_last_class[track_id]
+                    elif track_id in self.lost_tracks:
+                        track_cls = self.lost_tracks[track_id]['cls']
+                    else:
+                        track_cls = 0  # fallback
+                    
+                    self.lost_tracks[track_id] = {
+                        'last_frame': self.frame_id,
+                        'cls': track_cls
+                    }
+        
+        # Store class info for current tracks (for lost_tracks reference)
+        for i, track in enumerate(output_tracks):
+            track_id = int(track[4])
+            if track_id in self.lost_tracks:
+                self.lost_tracks[track_id]['cls'] = int(track[6])
+
+        # Debug: Write tracking info to debug.txt
+        # self._debug_write_tracking_info(output_tracks)
+
+        return output_tracks
+
+    def _debug_write_tracking_info(self, output_tracks: np.ndarray) -> None:
+        """Write current frame tracking info to debug.txt for debugging.
+
+        Logs current objects, lost tracks with frames-since-lost and frames-until-forget,
+        and a summary of recent appearance counts per track.
+        """
+        try:
+            with open("debug.txt", "a") as f:
+                f.write(f"\n{'='*80}\n")
+                f.write(f"FRAME {self.frame_id}\n")
+                f.write(f"{'='*80}\n\n")
+                # Current frame objects
+                f.write("CURRENT FRAME OBJECTS:\n")
+                current_objects = {}
+                for i, track in enumerate(output_tracks):
+                    track_id = int(track[4])
+                    class_id = int(track[6])
+                    score = float(track[5])
+                    current_objects[track_id] = {'class': class_id, 'score': score}
+                    f.write(f"  Track ID {track_id}: class={class_id}, score={score:.3f}\n")
+                if not current_objects:
+                    f.write("  (no objects)\n")
+                f.write(f"\nCurrent objects dict: {current_objects}\n")
+
+                # Lost tracks
+                f.write(f"\n{'─'*60}\n")
+                f.write("LOST TRACKS:\n")
+                if self.lost_tracks:
+                    for track_id, info in self.lost_tracks.items():
+                        frames_lost = self.frame_id - info['last_frame']
+                        frames_until_forget = max(0, self.max_lost_time - frames_lost)
+                        f.write(f"  Track ID {track_id}: class={info['cls']}, lost_for={frames_lost} frames, expires_in={frames_until_forget} frames\n")
+                    f.write(f"\nLost tracks dict: {self.lost_tracks}\n")
+                else:
+                    f.write("  (no lost tracks)\n")
+
+                # Track history summary
+                f.write(f"\n{'─'*60}\n")
+                f.write("TRACK HISTORY (last 15 frames):\n")
+                if self.track_history:
+                    for track_id, frames in self.track_history.items():
+                        recent_frames = [fr for fr in frames if self.frame_id - fr <= 15]
+                        if recent_frames:
+                            f.write(f"  Track ID {track_id}: {len(recent_frames)} appearances in last 15 frames\n")
+                else:
+                    f.write("  (no history)\n")
+
+                f.write("\n")
+        except Exception:
+            # avoid crashing tracker on logging errors
+            pass
+
+    def _calculate_iou(self, box: np.ndarray, boxes: np.ndarray) -> np.ndarray:
+        """Calculate IoU between a single box and multiple boxes.
+        
+        Args:
+            box (np.ndarray): Single bounding box [x1, y1, x2, y2]
+            boxes (np.ndarray): Multiple bounding boxes, shape (N, 4)
+        
+        Returns:
+            (np.ndarray): IoU values, shape (N,)
+        """
+        # Calculate intersection
+        xx1 = np.maximum(box[0], boxes[:, 0])
+        yy1 = np.maximum(box[1], boxes[:, 1])
+        xx2 = np.minimum(box[2], boxes[:, 2])
+        yy2 = np.minimum(box[3], boxes[:, 3])
+        
+        w = np.maximum(0, xx2 - xx1)
+        h = np.maximum(0, yy2 - yy1)
+        intersection = w * h
+        
+        # Calculate union
+        box_area = (box[2] - box[0]) * (box[3] - box[1])
+        boxes_area = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+        union = box_area + boxes_area - intersection
+        
+        # Calculate IoU
+        iou = intersection / (union + 1e-6)
+        return iou
+
+    def reset(self):
+        """Reset the HybridSORT tracker to its initial state.
+        
+        Clears all tracked objects and resets frame counter.
+        
+        Examples:
+            >>> tracker = HybridSORT(args, frame_rate=30)
+            >>> # ... track some frames ...
+            >>> tracker.reset()  # Start fresh for new video
+        """
+        # Reset HybridSORT internal state
+        self.hybrid_sort.trackers = []
+        self.hybrid_sort.frame_count = 0
+        
+        # Reset frame counter
+        self.frame_id = 0
+        
+        # Reset track ID counter
+        from .hybrid_sort.hybrid_sort import KalmanBoxTracker
+        KalmanBoxTracker.count = 0
+        
+        # Also reset parent class state
+        super().reset()
 
     @staticmethod
-    def get_obj_feats(feat_maps, idxs):
-        """Extract object features from the feature maps."""
-        import torch
-
-        s = min(x.shape[1] for x in feat_maps)  # find shortest vector length
-        obj_feats = torch.cat(
-            [x.permute(0, 2, 3, 1).reshape(x.shape[0], -1, s, x.shape[1] // s).mean(dim=-1) for x in feat_maps], dim=1
-        )  # mean reduce all vectors to same length
-        return [feats[idx] if idx.shape[0] else [] for feats, idx in zip(obj_feats, idxs)]  # for each img in batch
-
-    def construct_results(self, preds, img, orig_imgs):
-        """Construct a list of Results objects from model predictions.
-
-        Args:
-            preds (list[torch.Tensor]): List of predicted bounding boxes and scores for each image.
-            img (torch.Tensor): Batch of preprocessed images used for inference.
-            orig_imgs (list[np.ndarray]): List of original images before preprocessing.
-
-        Returns:
-            (list[Results]): List of Results objects containing detection information for each image.
+    def reset_id():
+        """Reset the ID counter for track instances.
+        
+        This ensures unique track IDs across tracking sessions.
+        
+        Examples:
+            >>> HybridSORT.reset_id()  # Reset global track ID counter
         """
-        return [
-            self.construct_result(pred, img, orig_img, img_path)
-            for pred, orig_img, img_path in zip(preds, orig_imgs, self.batch[0])
-        ]
-
-    def construct_result(self, pred, img, orig_img, img_path):
-        """Construct a single Results object from one image prediction.
-
-        Args:
-            pred (torch.Tensor): Predicted boxes and scores with shape (N, 6) where N is the number of detections.
-            img (torch.Tensor): Preprocessed image tensor used for inference.
-            orig_img (np.ndarray): Original image before preprocessing.
-            img_path (str): Path to the original image file.
-
-        Returns:
-            (Results): Results object containing the original image, image path, class names, and scaled bounding boxes.
-        """
-        pred[:, :4] = ops.scale_boxes(img.shape[2:], pred[:, :4], orig_img.shape)
-        return Results(orig_img, path=img_path, names=self.model.names, boxes=pred[:, :6])
-
+        from .hybrid_sort.hybrid_sort import KalmanBoxTracker
+        KalmanBoxTracker.count = 0
+        BaseTrack.reset_id()
