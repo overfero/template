@@ -312,6 +312,20 @@ class DetectionPredictor(BasePredictor):
                         if is_point_below_line(current_pos, line[0], line[1]):
                             ids_below_line.add(identity)
 
+                            # If we have stored Product info and it was previously counted as taken,
+                            # mark it as returned immediately when detected below the line.
+                            product = stored_moving_objects.get(class_name)
+                            if product and product.id == identity and getattr(product, 'taken_counted', False) and not getattr(product, 'returned_counted', False):
+                                obj_label = f"{class_name}"
+                                if obj_label not in object_counter1:
+                                    object_counter1[obj_label] = 0
+                                object_counter1[obj_label] += 1
+                                product.returned_counted = True
+                                counted_crossing_ids[identity] = 'South'
+                                if identity in ids_above_line:
+                                    ids_above_line.discard(identity)
+                                print(f"[AUTO-RETURNED] {class_name} ID {identity} detected below line and was previously taken - Returned count: {object_counter1[obj_label]}")
+
                         # If object was below line and now above line = taken (if not already counted as North)
                         elif is_point_above_line(current_pos, line[0], line[1]) and identity in ids_below_line:
                             last_direction = counted_crossing_ids.get(identity, None)

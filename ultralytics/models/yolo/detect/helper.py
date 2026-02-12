@@ -8,7 +8,7 @@ from mediapipe.tasks.python import vision
 from numpy import random
 from collections import deque
 from ultralytics.models.yolo.detect.config import (
-    MARGIN, FONT_SIZE, FONT_THICKNESS, HANDEDNESS_TEXT_COLOR,
+    MARGIN, FONT_SIZE, FONT_THICKNESS, HANDEDNESS_TEXT_COLOR, CAMERA_FROM_TOP,
 )
 
 mp_hands = mp.tasks.vision.HandLandmarksConnections
@@ -341,8 +341,11 @@ def draw_boxes(img, bbox, names, object_id, identities, data_deque, object_count
         y1 += offset[1]
         y2 += offset[1]
 
-        # code to find center of bottom edge
-        center = (int((x2+x1)/ 2), int((y2+y2)/2))
+        # center: bottom-middle for top camera, top-middle for bottom camera
+        if CAMERA_FROM_TOP:
+            center = (int((x1 + x2) / 2), int(y2))
+        else:
+            center = (int((x1 + x2) / 2), int(y1 * 0.8))
 
         # get ID of object
         id = int(identities[i]) if identities is not None else 0

@@ -204,7 +204,7 @@ class HybridSORT(BYTETracker):
                     if track_cls == lost_info['cls']:
                         # Check if ID difference is <= 3
                         id_diff = abs(track_id - lost_id)
-                        if id_diff <= 5 and id_diff < min_id_diff:
+                        if id_diff <= np.inf and id_diff < min_id_diff:
                             min_id_diff = id_diff
                             matched_lost_id = lost_id
             

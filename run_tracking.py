@@ -12,10 +12,10 @@ if not Path(model_name).exists():
 model = YOLO(model_name)
 
 results = model.track(
-    source="/home/overfero/Project/glair/Jumpstart - Smart Fridge/Ambil Biasa - Atas/WIN_20260126_10_28_41_Pro.mp4",
+    source="/home/overfero/Project/glair/Jumpstart - Smart Fridge/Ambil Biasa - Bawah/WIN_20260126_10_45_33_Pro.mp4",
     stream=True,  
     save=True,    
-    show=True,    
+    show=False,    
     device=0,     
     persist=True,  
     tracker="hybridsort.yaml"  # Changed to OC-SORT tracker
