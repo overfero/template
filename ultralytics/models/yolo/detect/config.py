@@ -22,7 +22,7 @@ NUM_HANDS = 2
 # ============================================================================
 # Tracker Configuration
 # ============================================================================
-USE_DEEPSORT = False  # Set to True to use DeepSort, False to use built-in tracker
+USE_DEEPSORT = True  # Set to True to use DeepSort, False to use built-in tracker
 DEEPSORT_CONFIG_PATH = str(ULTRALYTICS_ROOT / "trackers" / "deep_sort_pytorch" / "configs" / "deep_sort.yaml")
 DEEPSORT_REID_CKPT = str(ULTRALYTICS_ROOT / "trackers" / "deep_sort_pytorch" / "deep_sort" / "deep" / "checkpoint" / "ckpt.t7")
 

@@ -19,7 +19,6 @@ from ultralytics.models.yolo.detect.helper import (
     draw_landmarks_on_image, 
     xyxy_to_xywh, 
     draw_boxes,
-    get_significantly_moving_objects,
     is_point_above_line,
     is_point_below_line
 )
@@ -221,20 +220,22 @@ class DetectionPredictor(BasePredictor):
     
         height, width, _ = im0.shape
 
-        # Display Count - Left: Products Taken, Right: Products Returned
-        for idx, (key, value) in enumerate(object_counter.items()):
-            cnt_str = str(key) + ":" +str(value)
+        # Display net Taken counts (Taken - Returned). Show only non-zero nets.
+        net_counts = {}
+        for k, v in object_counter.items():
+            net_counts[k] = v - object_counter1.get(k, 0)
+        for k, v in object_counter1.items():
+            if k not in net_counts:
+                net_counts[k] = -v
+
+        displayed = [(k, cnt) for k, cnt in net_counts.items() if cnt != 0]
+        if displayed:
             cv2.line(im0, (UI_LEFT_MARGIN, UI_TOP_MARGIN), (UI_BOX_WIDTH, UI_TOP_MARGIN), UI_BOX_COLOR, UI_LINE_HEIGHT)
-            cv2.putText(im0, f'Numbers of Products Taken', (11, 35), 0, 1, UI_TEXT_COLOR, thickness=UI_TEXT_THICKNESS, lineType=cv2.LINE_AA)    
+            cv2.putText(im0, f'Products Taken (net)', (11, 35), 0, 1, UI_TEXT_COLOR, thickness=UI_TEXT_THICKNESS, lineType=cv2.LINE_AA)
+        for idx, (key, value) in enumerate(displayed):
+            cnt_str = f"{key}:{value}"
             cv2.line(im0, (UI_LEFT_MARGIN, 65 + (idx * UI_LINE_HEIGHT)), (UI_BOX_WIDTH, 65 + (idx * UI_LINE_HEIGHT)), UI_BOX_COLOR, 30)
             cv2.putText(im0, cnt_str, (11, 75 + (idx * UI_LINE_HEIGHT)), 0, 1, UI_TEXT_COLOR, thickness=UI_TEXT_THICKNESS, lineType=cv2.LINE_AA)
-
-        for idx, (key, value) in enumerate(object_counter1.items()):
-            cnt_str1 = str(key) + ":" +str(value)
-            cv2.line(im0, (width - 600, UI_TOP_MARGIN), (width - UI_RIGHT_MARGIN, UI_TOP_MARGIN), UI_BOX_COLOR, UI_LINE_HEIGHT)
-            cv2.putText(im0, f'Number of Products Returned', (width - 600, 35), 0, 1, UI_TEXT_COLOR, thickness=UI_TEXT_THICKNESS, lineType=cv2.LINE_AA)
-            cv2.line(im0, (width - 600, 65 + (idx * UI_LINE_HEIGHT)), (width - UI_RIGHT_MARGIN, 65 + (idx * UI_LINE_HEIGHT)), UI_BOX_COLOR, 30)
-            cv2.putText(im0, cnt_str1, (width - 600, 75 + (idx * UI_LINE_HEIGHT)), 0, 1, [255, 255, 255], thickness=UI_TEXT_THICKNESS, lineType=cv2.LINE_AA)
     
         # Display frame number at bottom right
         frame_text = f"Frame: {frame if frame is not None else 0}"
@@ -407,6 +408,34 @@ class DetectionPredictor(BasePredictor):
                 self.plotted_img = result.plot()
                 im0 = self.plotted_img
         
+        
+        # Write per-frame trace including state (taken_counted/returned_counted) per id
+        try:
+            trace_path = self.save_dir.parent / "trace.txt" if hasattr(self, "save_dir") else "trace.txt"
+            if hasattr(self, "save_dir"):
+                self.save_dir.parent.mkdir(parents=True, exist_ok=True)
+
+            def _get_product_flags(identity):
+                for cname, prod in stored_moving_objects.items():
+                    if prod is not None and getattr(prod, 'id', None) == identity:
+                        return cname, bool(getattr(prod, 'taken_counted', False)), bool(getattr(prod, 'returned_counted', False))
+                return None, False, False
+
+            below_info = []
+            for iid in sorted(ids_below_line):
+                cname, taken_f, returned_f = _get_product_flags(iid)
+                below_info.append({"id": int(iid), "class": cname, "taken_counted": taken_f, "returned_counted": returned_f})
+
+            above_info = []
+            for iid in sorted(ids_above_line):
+                cname, taken_f, returned_f = _get_product_flags(iid)
+                above_info.append({"id": int(iid), "class": cname, "taken_counted": taken_f, "returned_counted": returned_f})
+
+            with open(str(trace_path), "a", encoding="utf-8") as tf:
+                tf.write(f"Frame {frame if frame is not None else 0}: below={below_info}, above={above_info}\n")
+        except Exception:
+            pass
+
         # Set plotted image with tracking results
         self.plotted_img = im0
         

@@ -226,7 +226,7 @@ def get_direction(point1, point2):
 
 
 def get_significantly_moving_objects(data_deque, identities, object_id, names, virtual_line, 
-                                     movement_threshold=30, min_trail_length=5, current_frame=0):
+                                     movement_threshold=5, min_trail_length=5, current_frame=0):
     """
     Deteksi objek yang benar-benar bergerak signifikan, bukan hanya perubahan bbox kecil.
     Filter objek yang masih di bawah virtual line.
