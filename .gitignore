@@ -153,6 +153,8 @@ runs/
 wandb/
 .DS_Store
 
+ultralytics/checkpoints/
+
 # Neural Network weights -----------------------------------------------------------------------------------------------
 weights/
 *.weights
@@ -203,3 +205,7 @@ calibration_*.npy
 # Training logs
 args.yaml
 results.csv
+
+# Local checkpoint directory
+checkpoint/
+debug.txt
