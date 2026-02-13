@@ -319,6 +319,17 @@ class HybridSORT(BYTETracker):
             if track_id in self.lost_tracks:
                 self.lost_tracks[track_id]['cls'] = int(track[6])
 
+        # Expire lost tracks that haven't been seen for a while (default: 60 frames)
+        # Can be overridden via `self.args.lost_track_expire_frames` if present.
+        expire_after = int(getattr(self.args, 'lost_track_expire_frames', 60))
+        for tid, info in list(self.lost_tracks.items()):
+            last = int(info.get('last_frame', 0))
+            if self.frame_id - last > expire_after:
+                try:
+                    del self.lost_tracks[tid]
+                except KeyError:
+                    pass
+
         # Debug: Write tracking info to debug.txt
         self._debug_write_tracking_info(output_tracks)
 

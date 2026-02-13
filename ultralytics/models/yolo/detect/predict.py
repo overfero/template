@@ -46,98 +46,26 @@ options = vision.HandLandmarkerOptions(
 )
 detector = vision.HandLandmarker.create_from_options(options)
 
-# Global state variables
-data_deque = {}
-deepsort = None
 object_counter = {}
 object_counter1 = {}
-moving_objects = None
-# Store mapping of old_id -> new_id for objects that reappeared
-id_mapping = {}
-# Store original moving Product instances by class name
-stored_moving_objects = {}  # {class_name: Product}
-# Track IDs that have been counted to prevent duplicate counting
-# Changed from set to dict to track last crossing direction (North/South)
-# This allows same ID to be counted for both taken (North) and returned (South)
-counted_crossing_ids = {}  # {ID: 'North' or 'South'} - Track last crossing direction
-# Track IDs that were seen below the line
 ids_below_line = set()  # IDs detected below virtual line
 ids_above_line = set()  # IDs detected above virtual line
+stored_moving_objects = {}
 
 # Set virtual line position based on camera position from config
 line = LINE_TOP_CAMERA if CAMERA_FROM_TOP else LINE_BOTTOM_CAMERA
 
-def init_tracker():
-    global deepsort
-    cfg_deep = get_config()
-    cfg_deep.merge_from_file(DEEPSORT_CONFIG_PATH)
-    
-    # Override REID_CKPT with absolute path from config
-    cfg_deep.DEEPSORT.REID_CKPT = DEEPSORT_REID_CKPT
-
-    deepsort= DeepSort(cfg_deep.DEEPSORT.REID_CKPT,
-                            max_dist=cfg_deep.DEEPSORT.MAX_DIST, min_confidence=cfg_deep.DEEPSORT.MIN_CONFIDENCE,
-                            nms_max_overlap=cfg_deep.DEEPSORT.NMS_MAX_OVERLAP, max_iou_distance=cfg_deep.DEEPSORT.MAX_IOU_DISTANCE,
-                            max_age=cfg_deep.DEEPSORT.MAX_AGE, n_init=cfg_deep.DEEPSORT.N_INIT, nn_budget=cfg_deep.DEEPSORT.NN_BUDGET,
-                            use_cuda=True)
-
 
 class DetectionPredictor(BasePredictor):
-    """A class extending the BasePredictor class for prediction based on a detection model.
-
-    This predictor specializes in object detection tasks, processing model outputs into meaningful detection results
-    with bounding boxes and class predictions.
-
-    Attributes:
-        args (namespace): Configuration arguments for the predictor.
-        model (nn.Module): The detection model used for inference.
-        batch (list): Batch of images and metadata for processing.
-
-    Methods:
-        postprocess: Process raw model predictions into detection results.
-        construct_results: Build Results objects from processed predictions.
-        construct_result: Create a single Result object from a prediction.
-        get_obj_feats: Extract object features from the feature maps.
-
-    Examples:
-        >>> from ultralytics.utils import ASSETS
-        >>> from ultralytics.models.yolo.detect import DetectionPredictor
-        >>> args = dict(model="yolo26n.pt", source=ASSETS)
-        >>> predictor = DetectionPredictor(overrides=args)
-        >>> predictor.predict_cli()
-    """
-    
-    def setup_model(self, model, verbose=True):
-        """Initialize tracker when setting up the model."""
-        global deepsort
-        if USE_DEEPSORT and deepsort is None:
-            init_tracker()
-        super().setup_model(model, verbose)
+    """YOLO Detection Predictor for inference and tracking."""
 
     def get_annotator(self, img):
+        """Get annotator object for image."""
         return Annotator(img, line_width=self.args.line_thickness, example=str(self.model.names))
 
 
     def postprocess(self, preds, img, orig_imgs, **kwargs):
-        """Post-process predictions and return a list of Results objects.
-
-        This method applies non-maximum suppression to raw model predictions and prepares them for visualization and
-        further analysis.
-
-        Args:
-            preds (torch.Tensor): Raw predictions from the model.
-            img (torch.Tensor): Processed input image tensor in model input format.
-            orig_imgs (torch.Tensor | list): Original input images before preprocessing.
-            **kwargs (Any): Additional keyword arguments.
-
-        Returns:
-            (list): List of Results objects containing the post-processed predictions.
-
-        Examples:
-            >>> predictor = DetectionPredictor(overrides=dict(model="yolo26n.pt"))
-            >>> results = predictor.predict("path/to/image.jpg")
-            >>> processed_results = predictor.postprocess(preds, img, orig_imgs)
-        """
+        """Postprocess model predictions: apply NMS and construct Results objects."""
         save_feats = getattr(self, "_feats", None) is not None
         preds = nms.non_max_suppression(
             preds,
@@ -191,26 +119,17 @@ class DetectionPredictor(BasePredictor):
         # HAND LANDMARK DETECTION
         # Convert BGR to RGB for MediaPipe
         rgb_frame = cv2.cvtColor(im0, cv2.COLOR_BGR2RGB)
-        
-        # Create MediaPipe Image
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-        
-        # Calculate timestamp in milliseconds
         timestamp_ms = int(frame * 1000 / DEFAULT_FPS) if frame is not None else 0
         
         # Detect hand landmarks
-        try:
-            detection_result = detector.detect_for_video(mp_image, timestamp_ms)
-            
-            # Draw landmarks on RGB frame
-            annotated_rgb = draw_landmarks_on_image(rgb_frame, detection_result)
-            
-            # Convert back to BGR for OpenCV
-            im0 = cv2.cvtColor(annotated_rgb, cv2.COLOR_RGB2BGR)
-        except Exception as e:
-            # If hand detection fails, continue with original image
-            print(f"Hand detection error: {e}")
-            pass
+        # try:
+        #     detection_result = detector.detect_for_video(mp_image, timestamp_ms)
+        #     annotated_rgb = draw_landmarks_on_image(rgb_frame, detection_result)
+        #     im0 = cv2.cvtColor(annotated_rgb, cv2.COLOR_RGB2BGR)
+        # except Exception as e:
+        #     print(f"Hand detection error: {e}")
+        #     pass
         
         # Get predictions for this image
         det = result.boxes.data  # xyxy, conf, cls
@@ -262,179 +181,89 @@ class DetectionPredictor(BasePredictor):
             n = (det[:, 5] == c).sum()
             string += f"{n} {self.model.names[int(c)]}{'s' * (n > 1)}, "
         
-        if USE_DEEPSORT:
-            # DeepSort tracking
-            xywh_bboxs = []
-            confs = []
-            oids = []
-            
-            for *xyxy, conf, cls in det:
-                x_c, y_c, bbox_w, bbox_h = xyxy_to_xywh(*xyxy)
-                xywh_obj = [x_c, y_c, bbox_w, bbox_h]
-                xywh_bboxs.append(xywh_obj)
-                confs.append([conf.item()])
-                oids.append(int(cls))
-            
-            if len(xywh_bboxs) > 0:
-                xywhs = torch.Tensor(xywh_bboxs)
-                confss = torch.Tensor(confs)
-                
-                outputs = deepsort.update(xywhs, confss, oids, im0)
-                if len(outputs) > 0:
-                    bbox_xyxy = outputs[:, :4]
-                    identities = outputs[:, -2]
-                    object_id = outputs[:, -1]
-                    
-                    draw_boxes(im0, bbox_xyxy, self.model.names, object_id, identities, data_deque, object_counter, object_counter1, line, counted_crossing_ids, stored_moving_objects, frame if frame is not None else 0)
-        else:
             # Use built-in Ultralytics tracker
-            if hasattr(result, 'boxes') and result.boxes.id is not None:
-                # Get tracking IDs from built-in tracker
-                bbox_xyxy = result.boxes.xyxy.cpu().numpy()
-                identities = result.boxes.id.cpu().numpy().astype(int)
-                object_id = result.boxes.cls.cpu().numpy().astype(int)
+        if hasattr(result, 'boxes') and result.boxes.id is not None:
+            # Get tracking IDs from built-in tracker
+            bbox_xyxy = result.boxes.xyxy.cpu().numpy()
+            identities = result.boxes.id.cpu().numpy().astype(int)
+            object_id = result.boxes.cls.cpu().numpy().astype(int)
+            
+            # Track objects position relative to line
+            for bbox, identity, obj_class_id in zip(bbox_xyxy, identities, object_id):
+                center_x = int((bbox[0] + bbox[2]) / 2)
+                center_y = int((bbox[1] + bbox[3]) / 2)
+
+                # Reuse existing Product object if present so we preserve trail_points
+                # and counting flags. Creating a new Product every frame discards history.
+                existing = stored_moving_objects.get(identity)
+                if existing is not None:
+                    product = existing
+                    product.class_id = int(obj_class_id)
+                    product.class_name = self.model.names[int(obj_class_id)]
+                    product.current_position = (center_x, center_y)
+                    product.bbox = bbox.tolist()
+                    product.last_seen_frame = frame if frame is not None else 0
+                else:
+                    product = Product(
+                        id=int(identity),
+                        class_id=int(obj_class_id),
+                        class_name=self.model.names[int(obj_class_id)],
+                        current_position=(center_x, center_y),
+                        bbox=bbox.tolist(),
+                        last_seen_frame=frame if frame is not None else 0,
+                    )
+                    stored_moving_objects[identity] = product
                 
-                # Apply ID mapping persistently (map new IDs back to original IDs)
-                for idx in range(len(identities)):
-                    if identities[idx] in id_mapping:
-                        identities[idx] = id_mapping[identities[idx]]
+                # Track if object is below line
+                if is_point_below_line(product.current_position, line[0], line[1]):
+                    ids_below_line.add(identity)
+
+                    if product.taken_counted and not product.return_counted and is_point_below_line(product.trail_points[0], line[0], line[1]):
+                        obj_label = f"{product.class_name}"
+                        if obj_label not in object_counter1:
+                            object_counter1[obj_label] = 0
+                        object_counter1[obj_label] += 1
+                        product.return_counted = True
+                        if identity in ids_above_line:
+                            ids_above_line.discard(identity)
+
+                # If object was below line and now above line = taken (if not already counted as North)
+                elif is_point_above_line(product.current_position, line[0], line[1]) and identity in ids_below_line:
+                    # last_direction = counted_crossing_ids.get(identity, None)
+                    if not product.taken_counted:
+                        obj_label = f"{product.class_name}"
+                        if obj_label not in object_counter:
+                            object_counter[obj_label] = 0
+                        object_counter[obj_label] += 1
+                        product.taken_counted = True
+                        if identity in ids_below_line:
+                            ids_below_line.discard(identity)
+                    else:
+                        # already counted at product level; skip
+                        pass
+
+
+                if is_point_above_line(product.current_position, line[0], line[1]):
+                    ids_above_line.add(identity)
                 
-                if len(bbox_xyxy) > 0:
-                    # Track objects position relative to line
-                    for bbox, identity, obj_class_id in zip(bbox_xyxy, identities, object_id):
-                        center_x = int((bbox[0] + bbox[2]) / 2)
-                        center_y = int((bbox[1] + bbox[3]) / 2)
-                        current_pos = (center_x, center_y)
-                        identity = int(identity)
-                        obj_class_id = int(obj_class_id)
-                        class_name = self.model.names[obj_class_id]
-                        
-                        # Track if object is below line
-                        if is_point_below_line(current_pos, line[0], line[1]):
-                            ids_below_line.add(identity)
-
-                            # If we have stored Product info and it was previously counted as taken,
-                            # mark it as returned immediately when detected below the line.
-                            product = stored_moving_objects.get(class_name)
-                            if product and product.id == identity and getattr(product, 'taken_counted', False) and not getattr(product, 'returned_counted', False):
-                                obj_label = f"{class_name}"
-                                if obj_label not in object_counter1:
-                                    object_counter1[obj_label] = 0
-                                object_counter1[obj_label] += 1
-                                product.returned_counted = True
-                                counted_crossing_ids[identity] = 'South'
-                                if identity in ids_above_line:
-                                    ids_above_line.discard(identity)
-                                print(f"[AUTO-RETURNED] {class_name} ID {identity} detected below line and was previously taken - Returned count: {object_counter1[obj_label]}")
-
-                        # If object was below line and now above line = taken (if not already counted as North)
-                        elif is_point_above_line(current_pos, line[0], line[1]) and identity in ids_below_line:
-                            last_direction = counted_crossing_ids.get(identity, None)
-                            
-                            # Count as taken if: never counted OR last was returned (South)
-                            # Prefer Product-level flag if available
-                            product = stored_moving_objects.get(class_name)
-                            if product and product.id == identity:
-                                # Only increment when product hasn't been marked as taken
-                                if not product.taken_counted:
-                                    obj_label = f"{class_name}"
-                                    if obj_label not in object_counter:
-                                        object_counter[obj_label] = 0
-                                    object_counter[obj_label] += 1
-                                    product.taken_counted = True
-                                    if identity in ids_below_line:
-                                        ids_below_line.discard(identity)
-                                    print(f"[TAKEN] {class_name} ID {identity} moved from below to above line - Taken count: {object_counter[obj_label]}")
-                                else:
-                                    # already counted at product level; skip
-                                    pass
-                            else:
-                                # Fallback: no Product info available, use last_direction logic
-                                if last_direction is None or last_direction == 'South':
-                                    obj_label = f"{class_name}"
-                                    if obj_label not in object_counter:
-                                        object_counter[obj_label] = 0
-                                    object_counter[obj_label] += 1
-                                    counted_crossing_ids[identity] = 'North'
-                                    # remove from below-line set to avoid duplicate counting
-                                    if identity in ids_below_line:
-                                        ids_below_line.discard(identity)
-                                    print(f"[TAKEN] {class_name} ID {identity} moved from below to above line - Taken count: {object_counter[obj_label]}")
-
-
-                        if is_point_above_line(current_pos, line[0], line[1]):
-                            ids_above_line.add(identity)
-                        
-                        # If object was above line and now below line = returned (if not already counted as South)
-                        elif is_point_below_line(current_pos, line[0], line[1]) and identity in ids_above_line:
-                            last_direction = counted_crossing_ids.get(identity, None)
-                            
-                            # Count as returned if: never counted OR last was taken (North)
-                            # Prefer Product-level flag if available
-                            product = stored_moving_objects.get(class_name)
-                            if product and product.id == identity:
-                                # Only increment when product hasn't been marked as returned
-                                if not product.returned_counted:
-                                    obj_label = f"{class_name}"
-                                    if obj_label not in object_counter1:
-                                        object_counter1[obj_label] = 0
-                                    object_counter1[obj_label] += 1
-                                    product.returned_counted = True
-                                    counted_crossing_ids[identity] = 'South'
-                                    # remove from above-line set to avoid duplicate counting
-                                    if identity in ids_above_line:
-                                        ids_above_line.discard(identity)
-                                    print(f"[RETURNED] {class_name} ID {identity} moved from above to below line - Returned count: {object_counter1[obj_label]}")
-                                else:
-                                    # already counted at product level; skip
-                                    pass
-                            else:
-                                # Fallback: no Product info available, use last_direction logic
-                                if last_direction is None or last_direction == 'North':
-                                    obj_label = f"{class_name}"
-                                    if obj_label not in object_counter1:
-                                        object_counter1[obj_label] = 0
-                                    object_counter1[obj_label] += 1
-                                    counted_crossing_ids[identity] = 'South'
-                                    # remove from above-line set to avoid duplicate counting
-                                    if identity in ids_above_line:
-                                        ids_above_line.discard(identity)
-                                    print(f"[RETURNED] {class_name} ID {identity} moved from above to below line - Returned count: {object_counter1[obj_label]}")
-                    
-                    # Now draw boxes with potentially updated identities
-                    draw_boxes(im0, bbox_xyxy, self.model.names, object_id, identities, data_deque, object_counter, object_counter1, line, counted_crossing_ids, stored_moving_objects, frame if frame is not None else 0)
-            else:
-                # No tracking, just draw detections
-                self.plotted_img = result.plot()
-                im0 = self.plotted_img
-        
-        
-        # Write per-frame trace including state (taken_counted/returned_counted) per id
-        try:
-            trace_path = self.save_dir.parent / "trace.txt" if hasattr(self, "save_dir") else "trace.txt"
-            if hasattr(self, "save_dir"):
-                self.save_dir.parent.mkdir(parents=True, exist_ok=True)
-
-            def _get_product_flags(identity):
-                for cname, prod in stored_moving_objects.items():
-                    if prod is not None and getattr(prod, 'id', None) == identity:
-                        return cname, bool(getattr(prod, 'taken_counted', False)), bool(getattr(prod, 'returned_counted', False))
-                return None, False, False
-
-            below_info = []
-            for iid in sorted(ids_below_line):
-                cname, taken_f, returned_f = _get_product_flags(iid)
-                below_info.append({"id": int(iid), "class": cname, "taken_counted": taken_f, "returned_counted": returned_f})
-
-            above_info = []
-            for iid in sorted(ids_above_line):
-                cname, taken_f, returned_f = _get_product_flags(iid)
-                above_info.append({"id": int(iid), "class": cname, "taken_counted": taken_f, "returned_counted": returned_f})
-
-            with open(str(trace_path), "a", encoding="utf-8") as tf:
-                tf.write(f"Frame {frame if frame is not None else 0}: below={below_info}, above={above_info}\n")
-        except Exception:
-            pass
+                # If object was above line and now below line = returned (if not already counted as South)
+                elif is_point_below_line(product.current_position, line[0], line[1]) and identity in ids_above_line:
+                    if product.taken_counted and not product.return_counted:
+                        obj_label = f"{product.class_name}"
+                        if obj_label not in object_counter1:
+                            object_counter1[obj_label] = 0
+                        object_counter1[obj_label] += 1
+                        product.return_counted = True
+                        product.movement_direction = 'South'
+                        # remove from above-line set to avoid duplicate counting
+                        if identity in ids_above_line:
+                            ids_above_line.discard(identity)
+                    else:
+                        # already counted at product level; skip
+                        pass
+            
+            # Now draw boxes with potentially updated identities
+            draw_boxes(im0, stored_moving_objects, identities, object_counter, object_counter1, line, frame)
 
         # Set plotted image with tracking results
         self.plotted_img = im0

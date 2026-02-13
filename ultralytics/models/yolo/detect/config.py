@@ -22,18 +22,18 @@ NUM_HANDS = 2
 # ============================================================================
 # Tracker Configuration
 # ============================================================================
-USE_DEEPSORT = True  # Set to True to use DeepSort, False to use built-in tracker
+USE_DEEPSORT = False  # Set to True to use DeepSort, False to use built-in tracker
 DEEPSORT_CONFIG_PATH = str(ULTRALYTICS_ROOT / "trackers" / "deep_sort_pytorch" / "configs" / "deep_sort.yaml")
 DEEPSORT_REID_CKPT = str(ULTRALYTICS_ROOT / "trackers" / "deep_sort_pytorch" / "deep_sort" / "deep" / "checkpoint" / "ckpt.t7")
 
 # ============================================================================
 # Camera Configuration
 # ============================================================================
-CAMERA_FROM_TOP = False  # True = camera from top, False = camera from bottom
+CAMERA_FROM_TOP = True  # True = camera from top, False = camera from bottom
 
 # Virtual line position based on camera position
-LINE_TOP_CAMERA = [(100, 500), (1800, 500)]  # Line at bottom for top camera
-LINE_BOTTOM_CAMERA = [(0, 100), (2000, 100)]  # Line at top for bottom camera
+LINE_TOP_CAMERA = [(50, 400), (1800, 300)]
+LINE_BOTTOM_CAMERA = [(0, 100), (2000, 100)]  #
 
 # Line colors for visualization
 LINE_COLOR_MAIN = (46, 162, 112)  # Main line color

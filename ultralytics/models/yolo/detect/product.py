@@ -30,8 +30,8 @@ class Product:
         class_id: int,
         class_name: str,
         current_position: Tuple[int, int],
+        bbox: List[int],
         trail_points: Optional[List[Tuple[int, int]]] = None,
-        total_displacement: float = 0.0,
         is_below_line: bool = False,
         movement_direction: str = "",
         taken_counted: bool = False,
@@ -47,7 +47,7 @@ class Product:
             class_name: Human-readable class name
             current_position: Current (x, y) position
             trail_points: List of historical positions (optional)
-            total_displacement: Total distance moved (default: 0.0)
+            bbox: Bounding box coordinates
             is_below_line: Whether below virtual line (default: False)
             movement_direction: Movement direction string (default: "")
             taken_counted: Whether counted as taken (default: False)
@@ -58,8 +58,8 @@ class Product:
         self.class_id = class_id
         self.class_name = class_name
         self.current_position = current_position
+        self.bbox = bbox  # [x1, y1, x2, y2]
         self.trail_points = deque(trail_points or [], maxlen=64)
-        self.total_displacement = total_displacement
         self.is_below_line = is_below_line
         self.movement_direction = movement_direction
         self.taken_counted = taken_counted

@@ -181,28 +181,6 @@ def is_point_above_line(point, line_start, line_end):
     return y < line_y
 
 
-# def get_shelf_number(point):
-#     """Determine shelf number based on trail point position relative to detection lines.
-#     Physical layout from top to bottom:
-#     - Rak 5: Above line 7-8 (topmost)
-#     - Rak 4: Between line 7-8 and line 5-6
-#     - Rak 3: Between line 5-6 and line 3-4
-#     - Rak 2: Between line 3-4 and line 1-2
-#     - Rak 1: Below line 1-2 (bottommost)
-#     """
-#     # Check from top to bottom using config values
-#     if is_point_above_line(point, SHELF_LINE_7_8[0], SHELF_LINE_7_8[1]):
-#         return 5  # Above line 7-8 (topmost)
-#     elif is_point_above_line(point, SHELF_LINE_5_6[0], SHELF_LINE_5_6[1]):
-#         return 4  # Between line 7-8 and line 5-6
-#     elif is_point_above_line(point, SHELF_LINE_3_4[0], SHELF_LINE_3_4[1]):
-#         return 3  # Between line 5-6 and line 3-4
-#     elif is_point_above_line(point, SHELF_LINE_1_2[0], SHELF_LINE_1_2[1]):
-#         return 2  # Between line 3-4 and line 1-2
-#     else:
-#         return 1  # Below line 1-2 (bottommost)
-
-
 def get_direction(point1, point2):
     direction_str = ""
 
@@ -225,121 +203,18 @@ def get_direction(point1, point2):
     return direction_str
 
 
-def get_significantly_moving_objects(data_deque, identities, object_id, names, virtual_line, 
-                                     movement_threshold=5, min_trail_length=5, current_frame=0):
-    """
-    Deteksi objek yang benar-benar bergerak signifikan, bukan hanya perubahan bbox kecil.
-    Filter objek yang masih di bawah virtual line.
-    
-    Args:
-        data_deque: Dictionary berisi deque trail points untuk setiap object ID
-        identities: Array of object IDs yang terdeteksi di frame ini
-        object_id: Array of class IDs untuk setiap objek
-        names: Dictionary mapping class ID to class name
-        virtual_line: Tuple of two points defining the virtual line [(x1,y1), (x2,y2)]
-        movement_threshold: Minimum pixel movement untuk dianggap gerakan signifikan (default: 30)
-        min_trail_length: Minimum panjang trail untuk analisis movement (default: 5)
-    
-    Returns:
-        dict: Dictionary dengan struktur:
-        {
-            class_name: {
-                'count': int,  # jumlah objek unik dari class ini yang bergerak
-                'objects': [Product, Product, ...]  # List of Product instances
-            }
-        }
-    """
-    groups = {
-        'below': {},
-        'above': {}
-    }
+def draw_boxes(img, stored_object, identities, object_counter, object_counter1, line, current_frame):
+    # iterate over a static list of keys so we can safely modify the dict
+    for key in list(stored_object.keys()):
+        prod = stored_object[key]
+        if prod.taken_counted and prod.return_counted:
+            stored_object.pop(key)
 
-    if identities is None or len(identities) == 0:
-        return groups
-
-    for i, obj_id in enumerate(identities):
-        obj_id = int(obj_id)
-
-        # Skip if no trail or too short
-        if obj_id not in data_deque or len(data_deque[obj_id]) < min_trail_length:
+    for i, id in enumerate(identities):
+        if id not in stored_object.keys():
             continue
-
-        trail = list(data_deque[obj_id])
-        current_pos = trail[0]
-        if current_pos is None:
-            continue
-
-        # Compute total displacement over recent frames (up to 10)
-        total_displacement = 0.0
-        for j in range(min(len(trail) - 1, 10)):
-            if trail[j] is None or trail[j + 1] is None:
-                continue
-            dx = trail[j][0] - trail[j + 1][0]
-            dy = trail[j][1] - trail[j + 1][1]
-            total_displacement += np.sqrt(dx**2 + dy**2)
-
-        # Skip if not moving enough
-        if total_displacement < movement_threshold:
-            continue
-
-        # Determine if current position is below or above the virtual line
-        is_below = is_point_below_line(current_pos, virtual_line[0], virtual_line[1])
-        is_above = is_point_above_line(current_pos, virtual_line[0], virtual_line[1])
-
-        # If neither strictly above nor below, skip
-        if not (is_below or is_above):
-            continue
-
-        # Class info
-        class_id = int(object_id[i])
-        class_name = names[class_id]
-
-        # Movement direction (from oldest valid to current)
-        movement_direction = ""
-        if len(trail) >= 2:
-            oldest_pos = None
-            for pos in reversed(trail):
-                if pos is not None:
-                    oldest_pos = pos
-                    break
-            if oldest_pos is not None:
-                movement_direction = get_direction(current_pos, oldest_pos)
-
-        product = Product(
-            id=obj_id,
-            class_id=class_id,
-            class_name=class_name,
-            current_position=current_pos,
-            trail_points=trail.copy(),
-            total_displacement=total_displacement,
-            is_below_line=is_below,
-            movement_direction=movement_direction,
-            last_seen_frame=current_frame
-        )
-
-        target_group = 'below' if is_below else 'above'
-        if class_name not in groups[target_group]:
-            groups[target_group][class_name] = {'count': 0, 'objects': []}
-
-        groups[target_group][class_name]['objects'].append(product)
-        groups[target_group][class_name]['count'] += 1
-
-    return groups
-
-
-def draw_boxes(img, bbox, names, object_id, identities, data_deque, object_counter, object_counter1, line, counted_crossing_ids, stored_moving_objects=None, current_frame=0, offset=(0, 0)):
-    height, width, _ = img.shape
-    # remove tracked point from buffer if object is lost
-    for key in list(data_deque):
-      if key not in identities:
-        data_deque.pop(key)
-
-    for i, box in enumerate(bbox):
-        x1, y1, x2, y2 = [int(i) for i in box]
-        x1 += offset[0]
-        x2 += offset[0]
-        y1 += offset[1]
-        y2 += offset[1]
+        prod = stored_object[id]
+        x1, y1, x2, y2 = [int(i) for i in prod.bbox]
 
         # center: bottom-middle for top camera, top-middle for bottom camera
         if CAMERA_FROM_TOP:
@@ -347,97 +222,48 @@ def draw_boxes(img, bbox, names, object_id, identities, data_deque, object_count
         else:
             center = (int((x1 + x2) / 2), int(y1 * 0.8))
 
-        # get ID of object
-        id = int(identities[i]) if identities is not None else 0
+        color = compute_color_for_labels(prod.class_id)
+        obj_name = prod.class_name
+        label = f"{obj_name}"
 
-        # create new buffer for new object
-        if id not in data_deque:  
-          data_deque[id] = deque(maxlen= 64)
-        color = compute_color_for_labels(object_id[i])
-        obj_name = names[object_id[i]]
-        label = f"{id}:{obj_name}"
-
-        # add center to buffer
-        data_deque[id].appendleft(center)
-        if len(data_deque[id]) >= 2:
-          direction = get_direction(data_deque[id][0], data_deque[id][1])
-          if intersect(data_deque[id][0], data_deque[id][1], line[0], line[1]):
-            cv2.line(img, line[0], line[1], (255, 255, 255), 3)
-              
-            # Logic based on camera position
-            if "North" in direction:
-                # Count taken - prefer Product-level flag if available
-                last_direction = counted_crossing_ids.get(id, None) if isinstance(counted_crossing_ids, dict) else None
-
-                if stored_moving_objects and obj_name in stored_moving_objects:
-                    product = stored_moving_objects[obj_name]
-                    if product.id == id:
-                        # Only count if product not yet counted as taken
-                        if not product.taken_counted and (last_direction is None or last_direction == 'South'):
-                            obj_label = f"{obj_name}"
-                            if obj_label not in object_counter:
-                                object_counter[obj_label] = 1
-                            else:
-                                object_counter[obj_label] += 1
-                            product.taken_counted = True
-                            product.last_seen_frame = current_frame
-                            if isinstance(counted_crossing_ids, dict):
-                                counted_crossing_ids[id] = 'North'
-                            else:
-                                counted_crossing_ids.add(id)
-                else:
-                    # Fallback when no Product info: use last_direction logic
-                    if id not in counted_crossing_ids or (isinstance(counted_crossing_ids, dict) and last_direction == 'South'):
+        prod.trail_points.appendleft(center)
+        # check for crossing only when we have at least two trail points
+        if len(prod.trail_points) >= 2:
+            p0 = tuple(map(int, prod.trail_points[0]))
+            p1 = tuple(map(int, prod.trail_points[1]))
+            direction = get_direction(p0, p1)
+            prod.movement_direction = direction
+            if intersect(p0, p1, line[0], line[1]):
+                cv2.line(img, line[0], line[1], (255, 255, 255), 3)
+                
+                # Logic based on camera position
+                if "North" in direction:
+                    if not prod.taken_counted:
                         obj_label = f"{obj_name}"
                         if obj_label not in object_counter:
                             object_counter[obj_label] = 1
                         else:
                             object_counter[obj_label] += 1
-                        if isinstance(counted_crossing_ids, dict):
-                            counted_crossing_ids[id] = 'North'
-                        else:
-                            counted_crossing_ids.add(id)
-                    
-            if "South" in direction:
-                # Count returned - prefer Product-level flag if available
-                last_direction = counted_crossing_ids.get(id, None) if isinstance(counted_crossing_ids, dict) else None
+                        prod.taken_counted = True
+                        prod.last_seen_frame = current_frame
 
-                if stored_moving_objects and obj_name in stored_moving_objects:
-                    product = stored_moving_objects[obj_name]
-                    if product.id == id:
-                        # Only count returned if the product was previously counted as taken
-                        if product.taken_counted and not product.return_counted and (last_direction is None or last_direction == 'North'):
-                            obj_label = obj_name
-                            if obj_label not in object_counter1:
-                                object_counter1[obj_label] = 1
-                            else:
-                                object_counter1[obj_label] += 1
-                            product.return_counted = True
-                            product.last_seen_frame = current_frame
-                            if isinstance(counted_crossing_ids, dict):
-                                counted_crossing_ids[id] = 'South'
-                            else:
-                                counted_crossing_ids.add(id)
-                else:
-                    # Fallback when no Product info: require that last_direction was North
-                    if isinstance(counted_crossing_ids, dict) and last_direction == 'North':
+                if "South" in direction:
+                    # Only count returned if the product was previously counted as taken
+                    if prod.taken_counted and not prod.return_counted:
                         obj_label = obj_name
                         if obj_label not in object_counter1:
                             object_counter1[obj_label] = 1
                         else:
                             object_counter1[obj_label] += 1
-                        counted_crossing_ids[id] = 'South'
+                        prod.return_counted = True
+                        prod.last_seen_frame = current_frame
 
-        UI_box(box, img, label=label, color=color, line_thickness=2)
-        # draw trail
-        for i in range(1, len(data_deque[id])):
-            # check if on buffer value is none
-            if data_deque[id][i - 1] is None or data_deque[id][i] is None:
-                continue
-            # generate dynamic thickness of trails
-            thickness = int(np.sqrt(64 / float(i + i)) * 1.5)
-            # draw trails
-            cv2.line(img, data_deque[id][i - 1], data_deque[id][i], color, thickness)
-    
+        UI_box(prod.bbox, img, label=label, color=color, line_thickness=2)
+
+    # with open("track.txt", "a") as f:
+    #     for obj_id, prod in stored_object.items():
+    #         # Format: frame, id, class_name, bbox, taken_counted, return_counted
+    #         lin = f"{current_frame},{obj_id},{prod.class_name},{prod.taken_counted},{prod.return_counted}, {prod.movement_direction}\n"
+    #         f.write(lin)
     
     return img
