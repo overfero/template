@@ -49,7 +49,8 @@ from ultralytics.cfg import get_cfg, get_save_dir
 from ultralytics.data import load_inference_source
 from ultralytics.data.augment import LetterBox
 from ultralytics.nn.autobackend import AutoBackend
-from ultralytics.utils import DEFAULT_CFG, LOGGER, MACOS, WINDOWS, callbacks, colorstr, ops
+from collections import defaultdict
+from ultralytics.utils import DEFAULT_CFG, LOGGER, MACOS, WINDOWS, colorstr, ops
 from ultralytics.utils.checks import check_imgsz, check_imshow
 from ultralytics.utils.files import increment_path
 from ultralytics.utils.torch_utils import attempt_compile, select_device, smart_inference_mode
@@ -143,10 +144,10 @@ class BasePredictor:
         self.batch = None
         self.results = None
         self.transforms = None
-        self.callbacks = _callbacks or callbacks.get_default_callbacks()
+        self.callbacks = _callbacks or defaultdict(list)
         self.txt_path = None
         self._lock = threading.Lock()  # for automatic thread-safe inference
-        callbacks.add_integration_callbacks(self)
+        # integrations removed: callbacks.add_integration_callbacks was removed
 
     def preprocess(self, im: torch.Tensor | list[np.ndarray]) -> torch.Tensor:
         """Prepare input image before inference.

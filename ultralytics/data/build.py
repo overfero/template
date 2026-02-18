@@ -229,7 +229,6 @@ def build_yolo_dataset(
     mode: str = "train",
     rect: bool = False,
     stride: int = 32,
-    multi_modal: bool = False,
 ) -> Dataset:
     """Build and return a YOLO dataset based on configuration parameters."""
     dataset = YOLODataset

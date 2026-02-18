@@ -54,6 +54,10 @@ from ultralytics.utils import (
     url2file,
 )
 
+# Minimal build: provide a local resolve_platform_uri fallback (no callbacks import)
+def resolve_platform_uri(uri, hard=True):
+    return None
+
 
 def parse_requirements(file_path=ROOT.parent / "requirements.txt", package=""):
     """Parse a requirements.txt file, ignoring lines that start with '#' and any text after '#'.
@@ -645,8 +649,6 @@ def check_file(file, suffix="", download=True, download_dir=".", hard=True):
     ):  # file exists or gRPC Triton images
         return file
     elif download and file.lower().startswith("ul://"):  # Ultralytics Platform URI
-        from ultralytics.utils.callbacks.platform import resolve_platform_uri
-
         url = resolve_platform_uri(file, hard=hard)  # Convert to signed HTTPS URL
         if url is None:
             return []  # Not found, soft fail (consistent with file search behavior)

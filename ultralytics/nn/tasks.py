@@ -75,15 +75,6 @@ from ultralytics.nn.modules import (
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, LOGGER, YAML, colorstr, emojis
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
-from ultralytics.utils.loss import (
-    E2ELoss,
-    PoseLoss26,
-    v8ClassificationLoss,
-    v8DetectionLoss,
-    v8OBBLoss,
-    v8PoseLoss,
-    v8SegmentationLoss,
-)
 from ultralytics.utils.ops import make_divisible
 from ultralytics.utils.patches import torch_load
 from ultralytics.utils.plotting import feature_visualization
@@ -94,7 +85,6 @@ from ultralytics.utils.torch_utils import (
     intersect_dicts,
     model_info,
     scale_img,
-    smart_inference_mode,
     time_sync,
 )
 
@@ -318,23 +308,6 @@ class BaseModel(torch.nn.Module):
         if verbose:
             LOGGER.info(f"Transferred {len_updated_csd}/{len(self.model.state_dict())} items from pretrained weights")
 
-    def loss(self, batch, preds=None):
-        """Compute loss.
-
-        Args:
-            batch (dict): Batch to compute loss on.
-            preds (torch.Tensor | list[torch.Tensor], optional): Predictions.
-        """
-        if getattr(self, "criterion", None) is None:
-            self.criterion = self.init_criterion()
-
-        if preds is None:
-            preds = self.forward(batch["img"])
-        return self.criterion(preds, batch)
-
-    def init_criterion(self):
-        """Initialize the loss criterion for the BaseModel."""
-        raise NotImplementedError("compute_loss() needs to be implemented by task heads")
 
 
 class DetectionModel(BaseModel):
@@ -506,10 +479,6 @@ class DetectionModel(BaseModel):
         i = (y[-1].shape[-1] // g) * sum(4 ** (nl - 1 - x) for x in range(e))  # indices
         y[-1] = y[-1][..., i:]  # small
         return y
-
-    def init_criterion(self):
-        """Initialize the loss criterion for the DetectionModel."""
-        return E2ELoss(self) if getattr(self, "end2end", False) else v8DetectionLoss(self)
 
 
 class Ensemble(torch.nn.ModuleList):

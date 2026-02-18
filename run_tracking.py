@@ -16,7 +16,7 @@ results = model.track(
     stream=True,  
     save=True,    
     show=True,    
-    device=0,     
+    device=-1,     
     persist=True,  
     tracker="hybridsort.yaml"  # Changed to OC-SORT tracker
 )
