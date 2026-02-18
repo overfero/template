@@ -560,65 +560,6 @@ class Annotator:
         return width, height, width * height
 
 
-@TryExcept()
-@plt_settings()
-def plot_labels(boxes, cls, names=(), save_dir=Path(""), on_plot=None):
-    """Plot training labels including class histograms and box statistics.
-
-    Args:
-        boxes (np.ndarray): Bounding box coordinates in format [x, y, width, height].
-        cls (np.ndarray): Class indices.
-        names (dict, optional): Dictionary mapping class indices to class names.
-        save_dir (Path, optional): Directory to save the plot.
-        on_plot (Callable, optional): Function to call after plot is saved.
-    """
-    import matplotlib.pyplot as plt  # scope for faster 'import ultralytics'
-    import polars
-    from matplotlib.colors import LinearSegmentedColormap
-
-    # Plot dataset labels
-    LOGGER.info(f"Plotting labels to {save_dir / 'labels.jpg'}... ")
-    nc = int(cls.max() + 1)  # number of classes
-    boxes = boxes[:1000000]  # limit to 1M boxes
-    x = polars.DataFrame(boxes, schema=["x", "y", "width", "height"])
-
-    # Matplotlib labels
-    subplot_3_4_color = LinearSegmentedColormap.from_list("white_blue", ["white", "blue"])
-    ax = plt.subplots(2, 2, figsize=(8, 8), tight_layout=True)[1].ravel()
-    y = ax[0].hist(cls, bins=np.linspace(0, nc, nc + 1) - 0.5, rwidth=0.8)
-    for i in range(nc):
-        y[2].patches[i].set_color([x / 255 for x in colors(i)])
-    ax[0].set_ylabel("instances")
-    if 0 < len(names) < 30:
-        ax[0].set_xticks(range(len(names)))
-        ax[0].set_xticklabels(list(names.values()), rotation=90, fontsize=10)
-        ax[0].bar_label(y[2])
-    else:
-        ax[0].set_xlabel("classes")
-    boxes = np.column_stack([0.5 - boxes[:, 2:4] / 2, 0.5 + boxes[:, 2:4] / 2]) * 1000
-    img = Image.fromarray(np.ones((1000, 1000, 3), dtype=np.uint8) * 255)
-    for class_id, box in zip(cls[:500], boxes[:500]):
-        ImageDraw.Draw(img).rectangle(box.tolist(), width=1, outline=colors(class_id))  # plot
-    ax[1].imshow(img)
-    ax[1].axis("off")
-
-    ax[2].hist2d(x["x"], x["y"], bins=50, cmap=subplot_3_4_color)
-    ax[2].set_xlabel("x")
-    ax[2].set_ylabel("y")
-    ax[3].hist2d(x["width"], x["height"], bins=50, cmap=subplot_3_4_color)
-    ax[3].set_xlabel("width")
-    ax[3].set_ylabel("height")
-    for a in {0, 1, 2, 3}:
-        for s in {"top", "right", "left", "bottom"}:
-            ax[a].spines[s].set_visible(False)
-
-    fname = save_dir / "labels.jpg"
-    plt.savefig(fname, dpi=200)
-    plt.close()
-    if on_plot:
-        on_plot(fname)
-
-
 def save_one_box(
     xyxy,
     im,
@@ -852,61 +793,6 @@ def plot_images(
         on_plot(fname)
 
 
-@plt_settings()
-def plot_results(file: str = "path/to/results.csv", dir: str = "", on_plot: Callable | None = None):
-    """Plot training results from a results CSV file. The function supports various types of data including
-    segmentation, pose estimation, and classification. Plots are saved as 'results.png' in the directory where the
-    CSV is located.
-
-    Args:
-        file (str, optional): Path to the CSV file containing the training results.
-        dir (str, optional): Directory where the CSV file is located if 'file' is not provided.
-        on_plot (callable, optional): Callback function to be executed after plotting. Takes filename as an argument.
-
-    Examples:
-        >>> from ultralytics.utils.plotting import plot_results
-        >>> plot_results("path/to/results.csv", segment=True)
-    """
-    import matplotlib.pyplot as plt  # scope for faster 'import ultralytics'
-    import polars as pl
-    from scipy.ndimage import gaussian_filter1d
-
-    save_dir = Path(file).parent if file else Path(dir)
-    files = list(save_dir.glob("results*.csv"))
-    assert len(files), f"No results.csv files found in {save_dir.resolve()}, nothing to plot."
-
-    loss_keys, metric_keys = [], []
-    for i, f in enumerate(files):
-        try:
-            data = pl.read_csv(f, infer_schema_length=None)
-            if i == 0:
-                for c in data.columns:
-                    if "loss" in c:
-                        loss_keys.append(c)
-                    elif "metric" in c:
-                        metric_keys.append(c)
-                loss_mid, metric_mid = len(loss_keys) // 2, len(metric_keys) // 2
-                columns = (
-                    loss_keys[:loss_mid] + metric_keys[:metric_mid] + loss_keys[loss_mid:] + metric_keys[metric_mid:]
-                )
-                fig, ax = plt.subplots(2, len(columns) // 2, figsize=(len(columns) + 2, 6), tight_layout=True)
-                ax = ax.ravel()
-            x = data.select(data.columns[0]).to_numpy().flatten()
-            for i, j in enumerate(columns):
-                y = data.select(j).to_numpy().flatten().astype("float")
-                ax[i].plot(x, y, marker=".", label=f.stem, linewidth=2, markersize=8)  # actual results
-                ax[i].plot(x, gaussian_filter1d(y, sigma=3), ":", label="smooth", linewidth=2)  # smoothing line
-                ax[i].set_title(j, fontsize=12)
-        except Exception as e:
-            LOGGER.error(f"Plotting error for {f}: {e}")
-    ax[1].legend()
-    fname = save_dir / "results.png"
-    fig.savefig(fname, dpi=200)
-    plt.close()
-    if on_plot:
-        on_plot(fname)
-
-
 def plt_color_scatter(v, f, bins: int = 20, cmap: str = "viridis", alpha: float = 0.8, edgecolors: str = "none"):
     """Plot a scatter plot with points colored based on a 2D histogram.
 
@@ -937,78 +823,6 @@ def plt_color_scatter(v, f, bins: int = 20, cmap: str = "viridis", alpha: float 
 
     # Scatter plot
     plt.scatter(v, f, c=colors, cmap=cmap, alpha=alpha, edgecolors=edgecolors)
-
-
-@plt_settings()
-def plot_tune_results(csv_file: str = "tune_results.csv", exclude_zero_fitness_points: bool = True):
-    """Plot the evolution results stored in a 'tune_results.csv' file. The function generates a scatter plot for each
-    key in the CSV, color-coded based on fitness scores. The best-performing configurations are highlighted on
-    the plots.
-
-    Args:
-        csv_file (str, optional): Path to the CSV file containing the tuning results.
-        exclude_zero_fitness_points (bool, optional): Don't include points with zero fitness in tuning plots.
-
-    Examples:
-        >>> plot_tune_results("path/to/tune_results.csv")
-    """
-    import matplotlib.pyplot as plt  # scope for faster 'import ultralytics'
-    import polars as pl
-    from scipy.ndimage import gaussian_filter1d
-
-    def _save_one_file(file):
-        """Save one matplotlib plot to 'file'."""
-        plt.savefig(file, dpi=200)
-        plt.close()
-        LOGGER.info(f"Saved {file}")
-
-    # Scatter plots for each hyperparameter
-    csv_file = Path(csv_file)
-    data = pl.read_csv(csv_file, infer_schema_length=None)
-    num_metrics_columns = 1
-    keys = [x.strip() for x in data.columns][num_metrics_columns:]
-    x = data.to_numpy()
-    fitness = x[:, 0]  # fitness
-    if exclude_zero_fitness_points:
-        mask = fitness > 0  # exclude zero-fitness points
-        x, fitness = x[mask], fitness[mask]
-    if len(fitness) == 0:
-        LOGGER.warning("No valid fitness values to plot (all iterations may have failed)")
-        return
-    # Iterative sigma rejection on lower bound only
-    for _ in range(3):  # max 3 iterations
-        mean, std = fitness.mean(), fitness.std()
-        lower_bound = mean - 3 * std
-        mask = fitness >= lower_bound
-        if mask.all():  # no more outliers
-            break
-        x, fitness = x[mask], fitness[mask]
-    j = np.argmax(fitness)  # max fitness index
-    n = math.ceil(len(keys) ** 0.5)  # columns and rows in plot
-    plt.figure(figsize=(10, 10), tight_layout=True)
-    for i, k in enumerate(keys):
-        v = x[:, i + num_metrics_columns]
-        mu = v[j]  # best single result
-        plt.subplot(n, n, i + 1)
-        plt_color_scatter(v, fitness, cmap="viridis", alpha=0.8, edgecolors="none")
-        plt.plot(mu, fitness.max(), "k+", markersize=15)
-        plt.title(f"{k} = {mu:.3g}", fontdict={"size": 9})  # limit to 40 characters
-        plt.tick_params(axis="both", labelsize=8)  # Set axis label size to 8
-        if i % n != 0:
-            plt.yticks([])
-    _save_one_file(csv_file.with_name("tune_scatter_plots.png"))
-
-    # Fitness vs iteration
-    x = range(1, len(fitness) + 1)
-    plt.figure(figsize=(10, 6), tight_layout=True)
-    plt.plot(x, fitness, marker="o", linestyle="none", label="fitness")
-    plt.plot(x, gaussian_filter1d(fitness, sigma=3), ":", label="smoothed", linewidth=2)  # smoothing line
-    plt.title("Fitness vs Iteration")
-    plt.xlabel("Iteration")
-    plt.ylabel("Fitness")
-    plt.grid(True)
-    plt.legend()
-    _save_one_file(csv_file.with_name("tune_fitness.png"))
 
 
 @plt_settings()

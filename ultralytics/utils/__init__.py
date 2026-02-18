@@ -1300,10 +1300,11 @@ class SettingsManager(JSONDict):
 
     def __init__(self, file=SETTINGS_FILE, version="0.0.6"):
         """Initialize the SettingsManager with default settings and load user settings."""
+        # Ensure JSON persistence is initialized (loads existing file if present)
+        super().__init__(file)
+
         import hashlib
         import uuid
-
-        from ultralytics.utils.torch_utils import torch_distributed_zero_first
 
         root = GIT.root or Path()
         datasets_root = (root.parent if GIT.root and is_dir_writeable(root.parent) else root).resolve()
@@ -1338,14 +1339,12 @@ class SettingsManager(JSONDict):
             "For help see https://docs.ultralytics.com/quickstart/#ultralytics-settings."
         )
 
-        with torch_distributed_zero_first(LOCAL_RANK):
-            super().__init__(self.file)
-
-            if not self.file.exists() or not self:  # Check if file doesn't exist or is empty
-                LOGGER.info(f"Creating new Ultralytics Settings v{version} file ✅ {self.help_msg}")
-                self.reset()
-
+        # Ensure settings contain expected keys and types – reset to defaults if missing or invalid
+        try:
             self._validate_settings()
+        except Exception:
+            # If validation raises, reset to defaults as a safe fallback
+            self.reset()
 
     def _validate_settings(self):
         """Validate the current settings and reset if necessary."""
