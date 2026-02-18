@@ -47,7 +47,7 @@ import torch
 
 from ultralytics.cfg import get_cfg, get_save_dir
 from ultralytics.data import load_inference_source
-from ultralytics.data.augment import LetterBox
+from ultralytics.data.utils import LetterBox
 from ultralytics.nn.autobackend import AutoBackend
 from collections import defaultdict
 from ultralytics.utils import DEFAULT_CFG, LOGGER, MACOS, WINDOWS, colorstr, ops

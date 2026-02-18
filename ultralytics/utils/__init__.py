@@ -26,7 +26,6 @@ import numpy as np
 import torch
 
 from ultralytics import __version__
-from ultralytics.utils.git import GitRepo
 from ultralytics.utils.patches import imread, imshow, imwrite, torch_save  # for patches
 from ultralytics.utils.tqdm import TQDM  # noqa
 
@@ -391,7 +390,7 @@ def plt_settings(rcparams=None, backend="Agg"):
     return decorator
 
 
-def set_logging(name="LOGGING_NAME", verbose=True):
+def set_logging(name="root", verbose=True, enable_file: bool | None = None, logs_dir: str | Path | None = None, filename: str = "ultralytics.log"):
     """Set up logging with UTF-8 encoding and configurable verbosity.
 
     This function configures logging for the Ultralytics library, setting the appropriate logging level and formatter
@@ -400,7 +399,7 @@ def set_logging(name="LOGGING_NAME", verbose=True):
 
     Args:
         name (str): Name of the logger.
-        verbose (bool): Flag to set logging level to INFO if True, ERROR otherwise.
+        verbose (bool): Flag to set logging level to DEBUG if True, ERROR otherwise.
 
     Returns:
         (logging.Logger): Configured logger object.
@@ -416,7 +415,7 @@ def set_logging(name="LOGGING_NAME", verbose=True):
         - The function sets up a StreamHandler with the appropriate formatter and level.
         - The logger's propagate flag is set to False to prevent duplicate logging in parent loggers.
     """
-    level = logging.INFO if verbose and RANK in {-1, 0} else logging.ERROR  # rank in world for Multi-GPU trainings
+    level = logging.DEBUG if verbose and RANK in {-1, 0} else logging.ERROR  # rank in world for Multi-GPU trainings
 
     class PrefixFormatter(logging.Formatter):
         def format(self, record):
@@ -447,22 +446,40 @@ def set_logging(name="LOGGING_NAME", verbose=True):
 
                 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
-    # Create and configure the StreamHandler with the appropriate formatter and level
+    # Create and configure the StreamHandler: show INFO+ on terminal
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(formatter)
-    stream_handler.setLevel(level)
+    stream_handler.setLevel(logging.INFO)
 
-    # Set up the logger
+    # Set up the logger. Set logger level to DEBUG so file handlers can receive DEBUG records
     logger = logging.getLogger(name)
-    logger.setLevel(level)
+    logger.setLevel(logging.DEBUG)
     logger.addHandler(stream_handler)
     logger.propagate = False
+
+    if enable_file is None:
+        enable_file = os.environ.get("YOLO_ENABLE_FILE_LOG", "1") != "0"
+    if enable_file:
+        ld = Path(logs_dir) if logs_dir is not None else (ROOT / "logs")
+        ld.mkdir(parents=True, exist_ok=True)
+        log_file = ld / filename
+
+        # Use PrefixFormatter so file logs have the same prefix behavior and include timestamps
+        file_formatter = PrefixFormatter("%(asctime)s - %(levelname)s - %(message)s", "%Y-%m-%d %H:%M:%S")
+
+        fh = logging.FileHandler(str(log_file), encoding="utf-8")
+        fh.setFormatter(file_formatter)
+        # File should capture debug-level logs for full diagnostics
+        fh.setLevel(logging.DEBUG)
+        logger.addHandler(fh)
+
     return logger
 
 
 # Set logger
-LOGGER = set_logging(LOGGING_NAME, verbose=VERBOSE)  # define globally (used in train.py, val.py, predict.py, etc.)
-logging.getLogger("sentry_sdk").setLevel(logging.CRITICAL + 1)
+LOGGER = set_logging(LOGGING_NAME, verbose=VERBOSE, enable_file=True)  # default to enabling file logging (can be controlled with YOLO_ENABLE_FILE_LOG env var)
+
+# (File logging is handled inside `set_logging()`; control with `YOLO_ENABLE_FILE_LOG` env var)
 
 
 def emojis(string=""):
@@ -917,7 +934,25 @@ IS_PIP_PACKAGE = is_pip_package()
 IS_RASPBERRYPI = is_raspberrypi()
 IS_DEBIAN, IS_DEBIAN_BOOKWORM, IS_DEBIAN_TRIXIE = is_debian([None, "bookworm", "trixie"])
 IS_UBUNTU = is_ubuntu()
-GIT = GitRepo()
+
+# Lazily import GitRepo to avoid circular imports with `ultralytics.utils.files`
+try:
+    from ultralytics.utils.files import GitRepo
+except Exception:
+    GitRepo = None
+
+# Create GIT object (fallback to a minimal stub if import failed)
+if GitRepo:
+    GIT = GitRepo()
+else:
+    class _NullGit:
+        is_repo = False
+        root = None
+        branch = None
+        commit = None
+        origin = None
+
+    GIT = _NullGit()
 USER_CONFIG_DIR = get_user_config_dir()  # Ultralytics settings dir
 SETTINGS_FILE = USER_CONFIG_DIR / "settings.json"
 

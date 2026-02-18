@@ -22,8 +22,6 @@ import torch.nn.functional as F
 
 from ultralytics import __version__
 from ultralytics.utils import (
-    DEFAULT_CFG_DICT,
-    DEFAULT_CFG_KEYS,
     LOGGER,
     NUM_THREADS,
     PYTHON_VERSION,
@@ -33,7 +31,7 @@ from ultralytics.utils import (
     colorstr,
 )
 from ultralytics.utils.checks import check_version
-from ultralytics.utils.cpu import CPUInfo
+from ultralytics.utils.autodevice import CPUInfo
 from ultralytics.utils.patches import torch_load
 
 # Version checks (all default to version>=min_version)

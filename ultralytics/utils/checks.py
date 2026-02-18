@@ -49,7 +49,7 @@ from ultralytics.utils import (
     TryExcept,
     clean_url,
     colorstr,
-    downloads,
+    files,
     is_github_action_running,
     url2file,
 )
@@ -348,8 +348,8 @@ def check_font(font="Arial.ttf"):
 
     # Download to USER_CONFIG_DIR if missing
     url = f"{ASSETS_URL}/{name}"
-    if downloads.is_url(url, check=True):
-        downloads.safe_download(url=url, file=file)
+    if files.is_url(url, check=True):
+        files.safe_download(url=url, file=file)
         return file
 
 
@@ -621,7 +621,7 @@ def check_model_file_from_stem(model: str = "yolo11n") -> str | Path:
         (str | Path): Model filename with appropriate suffix.
     """
     path = Path(model)
-    if not path.suffix and path.stem in downloads.GITHUB_ASSETS_STEMS:
+    if not path.suffix and path.stem in files.GITHUB_ASSETS_STEMS:
         return path.with_suffix(".pt")  # add suffix, i.e. yolo26n -> yolo26n.pt
     return model
 
@@ -662,7 +662,7 @@ def check_file(file, suffix="", download=True, download_dir=".", hard=True):
             LOGGER.info(f"Found {clean_url(url)} locally at {local_file}")
         else:
             local_file.parent.mkdir(parents=True, exist_ok=True)
-            downloads.safe_download(url=url, file=local_file, unzip=False)
+            files.safe_download(url=url, file=local_file, unzip=False)
         return str(local_file)
     elif download and file.lower().startswith(
         ("https://", "http://", "rtsp://", "rtmp://", "tcp://", "gs://")
@@ -674,7 +674,7 @@ def check_file(file, suffix="", download=True, download_dir=".", hard=True):
         if file.exists():
             LOGGER.info(f"Found {clean_url(url)} locally at {file}")  # file already exists
         else:
-            downloads.safe_download(url=url, file=file, unzip=False)
+            files.safe_download(url=url, file=file, unzip=False)
         return str(file)
     else:  # search
         files = glob.glob(str(ROOT / "**" / file), recursive=True) or glob.glob(str(ROOT.parent / file))  # find file

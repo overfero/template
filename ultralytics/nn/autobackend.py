@@ -20,8 +20,8 @@ from ultralytics.utils import (
 )
 from ultralytics.utils.checks import check_yaml
 
-from ultralytics.utils.downloads import attempt_download_asset, is_url
-from ultralytics.utils.nms import non_max_suppression
+from ultralytics.utils.files import attempt_download_asset, is_url
+from ultralytics.utils.ops import non_max_suppression
 
 
 def check_class_names(names: list | dict) -> dict[int, str]:

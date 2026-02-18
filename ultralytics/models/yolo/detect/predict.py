@@ -10,11 +10,9 @@ from mediapipe.tasks.python import vision
 
 from ultralytics.engine.predictor import BasePredictor
 from ultralytics.engine.results import Results
-from ultralytics.utils import ops, nms
+from ultralytics.utils import ops
 from ultralytics.utils.plotting import Annotator
 
-from ultralytics.trackers.deep_sort_pytorch.utils.parser import get_config
-from ultralytics.trackers.deep_sort_pytorch.deep_sort import DeepSort
 from ultralytics.models.yolo.detect.helper import (
     draw_landmarks_on_image, 
     xyxy_to_xywh, 
@@ -25,7 +23,6 @@ from ultralytics.models.yolo.detect.helper import (
 from ultralytics.models.yolo.detect.product import Product
 from ultralytics.models.yolo.detect.config import (
     HAND_LANDMARKER_MODEL_PATH, NUM_HANDS,
-    USE_DEEPSORT, DEEPSORT_CONFIG_PATH, DEEPSORT_REID_CKPT,
     CAMERA_FROM_TOP, LINE_TOP_CAMERA, LINE_BOTTOM_CAMERA,
     LINE_COLOR_MAIN, LINE_THICKNESS,
     UI_LEFT_MARGIN, UI_RIGHT_MARGIN, UI_TOP_MARGIN, UI_LINE_HEIGHT,
@@ -67,7 +64,7 @@ class DetectionPredictor(BasePredictor):
     def postprocess(self, preds, img, orig_imgs, **kwargs):
         """Postprocess model predictions: apply NMS and construct Results objects."""
         save_feats = getattr(self, "_feats", None) is not None
-        preds = nms.non_max_suppression(
+        preds = ops.non_max_suppression(
             preds,
             self.args.conf,
             self.args.iou,

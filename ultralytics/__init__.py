@@ -12,7 +12,7 @@ if not os.environ.get("OMP_NUM_THREADS"):
 
 from ultralytics.utils import ASSETS, SETTINGS
 from ultralytics.utils.checks import check_yolo as checks
-from ultralytics.utils.downloads import download
+from ultralytics.utils.files import download
 
 settings = SETTINGS
 

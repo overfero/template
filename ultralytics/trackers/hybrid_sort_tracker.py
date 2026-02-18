@@ -7,6 +7,8 @@ from collections import Counter
 
 import numpy as np
 
+from ultralytics.utils import LOGGER
+
 from .basetrack import BaseTrack
 from .byte_tracker import BYTETracker
 from .hybrid_sort.hybrid_sort import Hybrid_Sort as HybridSort_
@@ -341,49 +343,48 @@ class HybridSORT(BYTETracker):
         Logs current objects, lost tracks with frames-since-lost and frames-until-forget,
         and a summary of recent appearance counts per track.
         """
-        try:
-            with open("debug.txt", "a") as f:
-                f.write(f"\n{'='*80}\n")
-                f.write(f"FRAME {self.frame_id}\n")
-                f.write(f"{'='*80}\n\n")
-                # Current frame objects
-                f.write("CURRENT FRAME OBJECTS:\n")
-                current_objects = {}
-                for i, track in enumerate(output_tracks):
-                    track_id = int(track[4])
-                    class_id = int(track[6])
-                    score = float(track[5])
-                    current_objects[track_id] = {'class': class_id, 'score': score}
-                    f.write(f"  Track ID {track_id}: class={class_id}, score={score:.3f}\n")
-                if not current_objects:
-                    f.write("  (no objects)\n")
-                f.write(f"\nCurrent objects dict: {current_objects}\n")
+        lines = []
+        lines.append("\n" + "=" * 80)
+        lines.append(f"FRAME {self.frame_id}")
+        lines.append("" + "=" * 80 + "\n")
 
-                # Lost tracks
-                f.write(f"\n{'─'*60}\n")
-                f.write("LOST TRACKS:\n")
-                if self.lost_tracks:
-                    for track_id, info in self.lost_tracks.items():
-                        f.write(f"  Track ID {track_id}: class={info['cls']}\n")
-                    f.write(f"\nLost tracks dict: {self.lost_tracks}\n")
-                else:
-                    f.write("  (no lost tracks)\n")
+        # Current frame objects
+        lines.append("CURRENT FRAME OBJECTS:")
+        current_objects = {}
+        for i, track in enumerate(output_tracks):
+            track_id = int(track[4])
+            class_id = int(track[6])
+            score = float(track[5])
+            current_objects[track_id] = {"class": class_id, "score": score}
+            lines.append(f"  Track ID {track_id}: class={class_id}, score={score:.3f}")
+        if not current_objects:
+            lines.append("  (no objects)")
+        lines.append(f"\nCurrent objects dict: {current_objects}")
 
-                # Track history summary
-                f.write(f"\n{'─'*60}\n")
-                f.write("TRACK HISTORY (last 15 frames):\n")
-                if self.track_history:
-                    for track_id, frames in self.track_history.items():
-                        recent_frames = [fr for fr in frames if self.frame_id - fr <= 15]
-                        if recent_frames:
-                            f.write(f"  Track ID {track_id}: {len(recent_frames)} appearances in last 15 frames\n")
-                else:
-                    f.write("  (no history)\n")
+        # Lost tracks
+        lines.append("\n" + "─" * 60)
+        lines.append("LOST TRACKS:")
+        if self.lost_tracks:
+            for track_id, info in self.lost_tracks.items():
+                lines.append(f"  Track ID {track_id}: class={info['cls']}")
+            lines.append(f"\nLost tracks dict: {self.lost_tracks}")
+        else:
+            lines.append("  (no lost tracks)")
 
-                f.write("\n")
-        except Exception:
-            # avoid crashing tracker on logging errors
-            pass
+        # Track history summary
+        lines.append("\n" + "─" * 60)
+        lines.append("TRACK HISTORY (last 15 frames):")
+        if self.track_history:
+            for track_id, frames in self.track_history.items():
+                recent_frames = [fr for fr in frames if self.frame_id - fr <= 15]
+                if recent_frames:
+                    lines.append(f"  Track ID {track_id}: {len(recent_frames)} appearances in last 15 frames")
+        else:
+            lines.append("  (no history)")
+
+        # Emit the debug block as a single debug log to avoid interleaving
+        LOGGER.debug("\n".join(lines))
+
 
     def _calculate_iou(self, box: np.ndarray, boxes: np.ndarray) -> np.ndarray:
         """Calculate IoU between a single box and multiple boxes.
