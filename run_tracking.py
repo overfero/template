@@ -1,8 +1,8 @@
-from ultralytics import YOLO
+from smartfridge import YOLO
 from pathlib import Path
 
 
-model_name = "ultralytics/checkpoint/best (1).pt"
+model_name = "smartfridge/checkpoint/best (1).pt"
 
 #
 print(f"Loading model: {model_name}")
