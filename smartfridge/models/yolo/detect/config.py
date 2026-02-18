@@ -3,6 +3,7 @@ Configuration file for detection and tracking parameters.
 """
 
 from pathlib import Path
+from typing import Tuple, List
 
 # Get the directory where this config file is located
 CONFIG_DIR = Path(__file__).resolve().parent
@@ -18,13 +19,6 @@ FONT_THICKNESS = 1
 HANDEDNESS_TEXT_COLOR = (88, 205, 54)  # vibrant green
 HAND_LANDMARKER_MODEL_PATH = str(ULTRALYTICS_ROOT / 'checkpoint' / 'hand_landmarker.task')
 NUM_HANDS = 2
-
-# ============================================================================
-# Tracker Configuration
-# ============================================================================
-USE_DEEPSORT = False  # Set to True to use DeepSort, False to use built-in tracker
-DEEPSORT_CONFIG_PATH = str(ULTRALYTICS_ROOT / "trackers" / "deep_sort_pytorch" / "configs" / "deep_sort.yaml")
-DEEPSORT_REID_CKPT = str(ULTRALYTICS_ROOT / "trackers" / "deep_sort_pytorch" / "deep_sort" / "deep" / "checkpoint" / "ckpt.t7")
 
 # ============================================================================
 # Camera Configuration
@@ -49,8 +43,8 @@ UI_RIGHT_MARGIN = 30
 UI_TOP_MARGIN = 25
 UI_LINE_HEIGHT = 40
 UI_BOX_WIDTH = 500
-UI_BOX_COLOR = [85, 45, 255]
-UI_TEXT_COLOR = [225, 255, 255]
+UI_BOX_COLOR: Tuple[int, int, int] = (85, 45, 255)
+UI_TEXT_COLOR: Tuple[int, int, int] = (225, 255, 255)
 UI_TEXT_THICKNESS = 2
 
 # ============================================================================
@@ -58,8 +52,38 @@ UI_TEXT_THICKNESS = 2
 # ============================================================================
 DEFAULT_FPS = 30  # Assuming 30fps for timestamp calculation
 
-# ============================================================================
-# File Paths
-# ============================================================================
-# Output file path - will be created in current working directory
-SHELF_COORDINATES_FILE = "shelf_coordinates.txt"
+# Convenience computed values
+# Virtual line based on camera orientation
+LINE = LINE_TOP_CAMERA if CAMERA_FROM_TOP else LINE_BOTTOM_CAMERA
+
+# Consolidated UI configuration to allow a single import
+UI_CONFIG = {
+	"UI_LEFT_MARGIN": UI_LEFT_MARGIN,
+	"UI_RIGHT_MARGIN": UI_RIGHT_MARGIN,
+	"UI_TOP_MARGIN": UI_TOP_MARGIN,
+	"UI_LINE_HEIGHT": UI_LINE_HEIGHT,
+	"UI_BOX_WIDTH": UI_BOX_WIDTH,
+	"UI_BOX_COLOR": UI_BOX_COLOR,
+	"UI_TEXT_COLOR": UI_TEXT_COLOR,
+	"UI_TEXT_THICKNESS": UI_TEXT_THICKNESS,
+	"LINE_COLOR_MAIN": LINE_COLOR_MAIN,
+	"LINE_THICKNESS": LINE_THICKNESS,
+}
+
+__all__: List[str] = [
+	"CONFIG_DIR",
+	"ULTRALYTICS_ROOT",
+	"MARGIN",
+	"FONT_SIZE",
+	"FONT_THICKNESS",
+	"HANDEDNESS_TEXT_COLOR",
+	"HAND_LANDMARKER_MODEL_PATH",
+	"NUM_HANDS",
+	"CAMERA_FROM_TOP",
+	"LINE_TOP_CAMERA",
+	"LINE_BOTTOM_CAMERA",
+	"LINE",
+	"UI_CONFIG",
+	"DEFAULT_FPS",
+]
+

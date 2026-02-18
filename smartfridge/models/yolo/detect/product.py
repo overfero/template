@@ -60,6 +60,7 @@ class Product:
         self.current_position = current_position
         self.bbox = bbox  # [x1, y1, x2, y2]
         self.trail_points = deque(trail_points or [], maxlen=64)
+        self.total_displacement = 0.0
         self.is_below_line = is_below_line
         self.movement_direction = movement_direction
         self.taken_counted = taken_counted
