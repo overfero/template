@@ -2,7 +2,7 @@ from ultralytics import YOLO
 from pathlib import Path
 
 
-model_name = "ultralytics/checkpoint/best1.pt"
+model_name = "ultralytics/checkpoint/best (1).pt"
 
 #
 print(f"Loading model: {model_name}")
@@ -15,7 +15,7 @@ results = model.track(
     source="/home/overfero/Project/glair/Jumpstart - Smart Fridge/Ambil Biasa - Atas Samping/WIN_20260126_10_17_30_Pro.mp4",
     stream=True,  
     save=True,    
-    show=False,    
+    show=True,    
     device=0,     
     persist=True,  
     tracker="hybridsort.yaml"  # Changed to OC-SORT tracker

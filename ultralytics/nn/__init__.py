@@ -2,9 +2,7 @@
 
 from .tasks import (
     BaseModel,
-    ClassificationModel,
     DetectionModel,
-    SegmentationModel,
     guess_model_scale,
     guess_model_task,
     load_checkpoint,
@@ -15,9 +13,7 @@ from .tasks import (
 
 __all__ = (
     "BaseModel",
-    "ClassificationModel",
     "DetectionModel",
-    "SegmentationModel",
     "guess_model_scale",
     "guess_model_task",
     "load_checkpoint",

@@ -17,7 +17,7 @@ from PIL import Image
 from torch.utils.data import Dataset, dataloader, distributed
 
 from ultralytics.cfg import IterableSimpleNamespace
-from ultralytics.data.dataset import GroundingDataset, YOLODataset, YOLOMultiModalDataset
+from ultralytics.data.dataset import YOLODataset
 from ultralytics.data.loaders import (
     LOADERS,
     LoadImagesAndVideos,
@@ -232,7 +232,7 @@ def build_yolo_dataset(
     multi_modal: bool = False,
 ) -> Dataset:
     """Build and return a YOLO dataset based on configuration parameters."""
-    dataset = YOLOMultiModalDataset if multi_modal else YOLODataset
+    dataset = YOLODataset
     return dataset(
         img_path=img_path,
         imgsz=cfg.imgsz,
@@ -250,38 +250,6 @@ def build_yolo_dataset(
         data=data,
         fraction=cfg.fraction if mode == "train" else 1.0,
     )
-
-
-def build_grounding(
-    cfg: IterableSimpleNamespace,
-    img_path: str,
-    json_file: str,
-    batch: int,
-    mode: str = "train",
-    rect: bool = False,
-    stride: int = 32,
-    max_samples: int = 80,
-) -> Dataset:
-    """Build and return a GroundingDataset based on configuration parameters."""
-    return GroundingDataset(
-        img_path=img_path,
-        json_file=json_file,
-        max_samples=max_samples,
-        imgsz=cfg.imgsz,
-        batch_size=batch,
-        augment=mode == "train",  # augmentation
-        hyp=cfg,  # TODO: probably add a get_hyps_from_cfg function
-        rect=cfg.rect or rect,  # rectangular batches
-        cache=cfg.cache or None,
-        single_cls=cfg.single_cls or False,
-        stride=stride,
-        pad=0.0 if mode == "train" else 0.5,
-        prefix=colorstr(f"{mode}: "),
-        task=cfg.task,
-        classes=cfg.classes,
-        fraction=cfg.fraction if mode == "train" else 1.0,
-    )
-
 
 def build_dataloader(
     dataset,
