@@ -4,36 +4,22 @@ from __future__ import annotations
 
 import ast
 import json
-import platform
-import zipfile
-from collections import OrderedDict, namedtuple
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 import torch
 import torch.nn as nn
-from PIL import Image
 
 from ultralytics.utils import (
-    ARM64,
     IS_JETSON,
-    LINUX,
     LOGGER,
-    PYTHON_VERSION,
     ROOT,
     YAML,
     is_jetson,
 )
-from ultralytics.utils.checks import (
-    check_executorch_requirements,
-    check_requirements,
-    check_suffix,
-    check_version,
-    check_yaml,
-    is_rockchip,
-)
+from ultralytics.utils.checks import check_yaml
+
 from ultralytics.utils.downloads import attempt_download_asset, is_url
 from ultralytics.utils.nms import non_max_suppression
 
@@ -193,7 +179,7 @@ class AutoBackend(nn.Module):
         # Load external metadata YAML
         if isinstance(metadata, (str, Path)) and Path(metadata).exists():
             metadata = YAML.load(metadata)
-            
+
         if metadata and isinstance(metadata, dict):
             for k, v in metadata.items():
                 if k in {"stride", "batch", "channels"}:

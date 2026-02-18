@@ -10,17 +10,15 @@ import numpy as np
 import torch
 from PIL import Image
 
-from ultralytics.cfg import TASK2DATA, get_cfg, get_save_dir
+from ultralytics.cfg import get_cfg, get_save_dir
 from ultralytics.engine.results import Results
 from ultralytics.nn.tasks import guess_model_task, load_checkpoint, yaml_model_load
 from ultralytics.utils import (
     ARGV,
-    ASSETS,
     DEFAULT_CFG_DICT,
     LOGGER,
     RANK,
     SETTINGS,
-    YAML,
     checks,
 )
 from collections import defaultdict
@@ -667,28 +665,6 @@ class Model(torch.nn.Module):
               be required for proper functioning of certain operations.
         """
         self.callbacks[event] = []
-
-    def reset_callbacks(self) -> None:
-        """Reset all callbacks to their default functions.
-
-        This method reinstates the default callback functions for all events, removing any custom callbacks that were
-        previously added. It iterates through all default callback events and replaces the current callbacks with the
-        default ones.
-
-        The default callbacks are defined in the 'callbacks.default_callbacks' dictionary, which contains predefined
-        functions for various events in the model's lifecycle, such as on_train_start, on_epoch_end, etc.
-
-        This method is useful when you want to revert to the original set of callbacks after making custom
-        modifications, ensuring consistent behavior across different runs or experiments.
-
-        Examples:
-            >>> model = YOLO("yolo26n.pt")
-            >>> model.add_callback("on_train_start", custom_function)
-            >>> model.reset_callbacks()
-            # All callbacks are now reset to their default functions
-        """
-        for event in callbacks.default_callbacks.keys():
-            self.callbacks[event] = [callbacks.default_callbacks[event][0]]
 
     @staticmethod
     def _reset_ckpt_args(args: dict[str, Any]) -> dict[str, Any]:

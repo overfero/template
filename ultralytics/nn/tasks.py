@@ -480,49 +480,6 @@ class DetectionModel(BaseModel):
         y[-1] = y[-1][..., i:]  # small
         return y
 
-
-class Ensemble(torch.nn.ModuleList):
-    """Ensemble of models.
-
-    This class allows combining multiple YOLO models into an ensemble for improved performance through model averaging
-    or other ensemble techniques.
-
-    Methods:
-        __init__: Initialize an ensemble of models.
-        forward: Generate predictions from all models in the ensemble.
-
-    Examples:
-        Create an ensemble of models
-        >>> ensemble = Ensemble()
-        >>> ensemble.append(model1)
-        >>> ensemble.append(model2)
-        >>> results = ensemble(image_tensor)
-    """
-
-    def __init__(self):
-        """Initialize an ensemble of models."""
-        super().__init__()
-
-    def forward(self, x, augment=False, profile=False, visualize=False):
-        """Generate the YOLO network's final layer.
-
-        Args:
-            x (torch.Tensor): Input tensor.
-            augment (bool): Whether to augment the input.
-            profile (bool): Whether to profile the model.
-            visualize (bool): Whether to visualize the features.
-
-        Returns:
-            y (torch.Tensor): Concatenated predictions from all models.
-            train_out (None): Always None for ensemble inference.
-        """
-        y = [module(x, augment, profile, visualize)[0] for module in self]
-        # y = torch.stack(y).max(0)[0]  # max ensemble
-        # y = torch.stack(y).mean(0)  # mean ensemble
-        y = torch.cat(y, 2)  # nms ensemble, y shape(B, HW, C*num_models)
-        return y, None  # inference, train output
-
-
 # Functions ------------------------------------------------------------------------------------------------------------
 
 
