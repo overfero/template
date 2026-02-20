@@ -1,3 +1,16 @@
+"""
+Helper utilities for the `detect` pipeline: visualization, MediaPipe hand-landmarker integration,
+bounding-box conversions, UI rendering and other small helper functions used by tracker/predictor.
+
+Authors:
+    Fehru Madndala Putra (fehruputramen22@gmail.com)
+Reviewers:
+    Budi Kurniawan (budi.kurniawan1@gdplabs.id)
+    Aris Maulana (muhammad.a.maulana@gdplabs.id)
+References:
+    NONE
+"""
+
 #@markdown We implemented some functions to visualize the hand landmark detection results. <br/> Run the following cell to activate the functions.
 import mediapipe as mp
 import logging

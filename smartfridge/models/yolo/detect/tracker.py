@@ -1,3 +1,16 @@
+"""
+Tracker manager for `Product` instances: maintains stored objects, line-membership sets and
+counters; delegates per-object updates to helper functions.
+
+Authors:
+    Fehru Madndala Putra (fehruputramen22@gmail.com)
+Reviewers:
+    Budi Kurniawan (budi.kurniawan1@gdplabs.id)
+    Aris Maulana (muhammad.a.maulana@gdplabs.id)
+References:
+    NONE
+"""
+
 from typing import Dict, Sequence, Optional, Tuple
 from collections import deque
 

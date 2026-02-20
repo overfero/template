@@ -1,5 +1,14 @@
 """
-Configuration file for detection and tracking parameters.
+Configuration constants for MediaPipe hand detection, camera layout, UI and model defaults
+used by the `detect` pipeline.
+
+Authors:
+    Fehru Madndala Putra (fehruputramen22@gmail.com)
+Reviewers:
+    Budi Kurniawan (budi.kurniawan1@gdplabs.id)
+    Aris Maulana (muhammad.a.maulana@gdplabs.id)
+References:
+    NONE
 """
 
 from pathlib import Path
@@ -70,20 +79,4 @@ UI_CONFIG = {
 	"LINE_THICKNESS": LINE_THICKNESS,
 }
 
-__all__: List[str] = [
-	"CONFIG_DIR",
-	"ULTRALYTICS_ROOT",
-	"MARGIN",
-	"FONT_SIZE",
-	"FONT_THICKNESS",
-	"HANDEDNESS_TEXT_COLOR",
-	"HAND_LANDMARKER_MODEL_PATH",
-	"NUM_HANDS",
-	"CAMERA_FROM_TOP",
-	"LINE_TOP_CAMERA",
-	"LINE_BOTTOM_CAMERA",
-	"LINE",
-	"UI_CONFIG",
-	"DEFAULT_FPS",
-]
 

@@ -1,5 +1,14 @@
 """
-Product class for tracking detected objects with their movement information.
+Product data model for tracked objects: trail management, counting flags, simple serialization
+helpers and movement metadata used by the tracker.
+
+Authors:
+    Fehru Madndala Putra (fehruputramen22@gmail.com)
+Reviewers:
+    Budi Kurniawan (budi.kurniawan1@gdplabs.id)
+    Aris Maulana (muhammad.a.maulana@gdplabs.id)
+References:
+    NONE
 """
 
 from collections import deque

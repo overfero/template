@@ -1,268 +1,88 @@
-# Smart Retail Detection & Tracking System
+# Smart Retail — Deteksi & Tracking
 
-Sistem deteksi dan tracking objek untuk aplikasi smart retail dengan fitur hand landmark detection dan shelf detection.
+Template ini berisi skrip dan modul untuk deteksi dan tracking objek pada aplikasi smart retail (rak, tangan, dsb.). README ini disederhanakan dan tidak menyertakan referensi ke implementasi tracker yang tidak relevan.
 
-## 📋 Prerequisites
+Ringkasan singkat: install dengan `pip install -e .`, letakkan model di `smartfridge/checkpoint/`, lalu jalankan `python run_tracking.py`.
+
+## Prerequisites
 
 - Python 3.8+
-- CUDA-capable GPU (recommended)
-- Conda atau virtual environment
+- (Opsional, direkomendasikan) GPU dengan CUDA
+- Conda atau `venv` untuk lingkungan terisolasi
 
-## 🚀 Installation
-
-### 1. Clone Repository
+## Instalasi
 
 ```bash
 git clone <repository-url>
 cd template
-```
-
-### 2. Install in Editable Mode
-
-**PENTING:** Selalu install dalam mode editable agar perubahan kode langsung terdeteksi.
-
-```bash
 pip install -e .
 ```
 
-## 📁 File Structure
-
+## Struktur proyek (ringkas — level 2)
 ```
 template/
-├── ultralytics/
-│   ├── checkpoint/                          # Model checkpoints
-│   │   ├── best (1).pt                     # YOLO detection model
-│   │   └── hand_landmarker.task            # MediaPipe hand model
+├── smartfridge/
+│   ├── checkpoint/               # Model checkpoints
+│   │   ├── best (1).pt           # YOLO detection
+│   │   └── hand_landmarker.task # MediaPipe hand
 │   ├── trackers/
-│   │   └── deep_sort_pytorch/              # DeepSort tracker
-│   │       ├── configs/
-│   │       │   └── deep_sort.yaml
-│   │       └── deep_sort/deep/checkpoint/
-│   │           └── ckpt.t7                 # DeepSort ReID model
+│   │   └── hybridsort/           # Hybridsort tracker
+│   │   └── ocsort/               # OCsort tracker
+│   │   └── bytetrack.py          # Bytetrack tracker
+│   │   └── botsort.py            # Botsort tracker
 │   └── models/yolo/detect/
-│       ├── config.py                        # ⚙️ CONFIGURATION FILE
-│       ├── helper.py                        # Utility functions
-│       └── predict.py                       # Main predictor
-├── run_tracking.py                          # Example usage script
+│       ├── config.py             # Config file
+│       ├── helper.py             # Utility functions
+│       └── predict.py            # Predictor class
+│       └── helper.py             # Helper func
+│       └── config.py             # Config management
+│       └── tracker.py            # Tracker class
+├── run_tracking.py               # Main script
 └── README.md
 ```
+Keterangan singkat:
+- `cfg/`: berisi `default.yaml` dan presets (mis. `bytetrack.yaml`, `botsort.yaml`, `hybridsort.yaml`) untuk memilih konfigurasi tracker dan model.
+- `trackers/`: berisi implementasi tracker dan helper; contohnya `byte_tracker.py`, `bot_sort.py`, `hybrid_sort/` (kode reappearance berada di sini), `oc_sort/`.
 
-## ⚙️ Configuration
+## Trackers tersedia
 
-### Edit File: `ultralytics/models/yolo/detect/config.py`
+- `bytetrack` — tracker berbasis ByteTrack
+- `botsort` — BoTSORT implementation
+- `hybridsort` — HybridSort (direkomendasikan untuk smart fridge)
+- `ocsort` — OCSORT (opsional)
 
-#### 1. **Pilih Tracker**
+Catatan penting: `hybridsort` mengandung fitur reappearance yang membantu menjaga konsistensi ID ketika objek sementara hilang atau tertutup — berguna untuk skenario smart fridge di mana objek (produk, tangan) dapat terhalang atau bergerak singkat.
 
-```python
-# Set to True untuk DeepSort, False untuk ByteTrack/BoTSORT
-USE_DEEPSORT = False  # Ubah sesuai kebutuhan
-```
-
-#### 2. **Konfigurasi Posisi Kamera**
-
-```python
-# True = kamera dari atas, False = kamera dari bawah
-CAMERA_FROM_TOP = True  # Ubah sesuai instalasi kamera
-```
-
-#### 3. **Model Paths** (Auto-configured)
-
-Path model otomatis disesuaikan berdasarkan struktur folder:
+## Konfigurasi singkat (contoh)
 
 ```python
-# MediaPipe Hand Detection Model
-HAND_LANDMARKER_MODEL_PATH = 'ultralytics/checkpoint/hand_landmarker.task'
-
-# DeepSort ReID Checkpoint
-DEEPSORT_REID_CKPT = 'ultralytics/trackers/deep_sort_pytorch/.../ckpt.t7'
+TRACKER = 'hybridsort'  # 'bytetrack' | 'botsort' | 'hybridsort' | 'ocsort'
+CAMERA_FROM_TOP = True
+HAND_LANDMARKER_PATH = 'smartfridge/checkpoint/hand_landmarker.task'
+YOLO_PATH = 'smartfridge/checkpoint/best.pt'
 ```
 
-#### 4. **Shelf Detection Lines**
-
-Sesuaikan koordinat garis deteksi rak:
-
-```python
-SHELF_LINE_1_2 = ((330, 938), (1631, 798))  # Line 1-2
-SHELF_LINE_3_4 = ((481, 816), (1500, 730))  # Line 3-4
-SHELF_LINE_5_6 = ((585, 715), (1379, 651))  # Line 5-6
-SHELF_LINE_7_8 = ((665, 634), (1282, 585))  # Line 7-8
-```
-
-#### 5. **Virtual Line Position**
-
-```python
-LINE_TOP_CAMERA = [(100, 500), (1800, 500)]     # Untuk kamera atas
-LINE_BOTTOM_CAMERA = [(100, 700), (1800, 700)]  # Untuk kamera bawah
-```
-
-#### 6. **UI Settings**
-
-```python
-UI_LEFT_MARGIN = 20
-UI_BOX_WIDTH = 500
-UI_BOX_COLOR = [85, 45, 255]
-UI_TEXT_COLOR = [225, 255, 255]
-```
-
-## 🎯 Usage
-
-### Basic Example
-
-```python
-from ultralytics import YOLO
-
-# Load model
-model = YOLO("ultralytics/checkpoint/best (1).pt")
-
-# Run tracking
-results = model.track(
-    source="path/to/video.mp4",
-    stream=True,
-    save=True,
-    show=True,
-    device=0,
-    persist=True,
-    tracker="bytetrack.yaml"  # atau None jika USE_DEEPSORT=True
-)
-
-# Process results
-for result in results:
-    # Your code here
-    pass
-```
-
-### Running Example Script
+## Contoh penggunaan singkat
 
 ```bash
 python run_tracking.py
 ```
 
-## 📦 Required Model Files
+## Output
 
-### 1. YOLO Detection Model
+- Hasil video dan label biasanya tersimpan di `runs/detect/track*/`.
 
-Letakkan model YOLO di:
-```
-ultralytics/checkpoint/best (1).pt
-```
+## Troubleshooting singkat
 
-### 2. Hand Landmark Model
+- Module not found: jalankan `pip install -e .` dari folder project
+- Model file not found: pastikan model berada di `smartfridge/checkpoint/` dan path di konfigurasi cocok
 
-Download MediaPipe Hand Landmarker:
-```bash
-# Download dari: https://developers.google.com/mediapipe/solutions/vision/hand_landmarker
-# Simpan di: ultralytics/checkpoint/hand_landmarker.task
-```
+## Development
 
-### 3. DeepSort ReID Model (Opsional)
+- Setelah `pip install -e .`, edit kode di `smartfridge/` dan langsung jalankan tanpa reinstall
+- Lokasi penting:
+  - `smartfridge/engine/` — predictor, model wrapper
+  - `smartfridge/data/` — loader, util
+  - `smartfridge/cfg/` — konfigurasi (default.yaml, models/trackers presets)
+  - `smartfridge/trackers/hybrid_sort/` — fungsi reappearance dan implementasi HybridSort
 
-Jika menggunakan `USE_DEEPSORT=True`:
-```
-ultralytics/trackers/deep_sort_pytorch/deep_sort/deep/checkpoint/ckpt.t7
-```
-
-## 🛠️ Development
-
-### Editing Code
-
-Setelah `pip install -e .`, edit file di:
-
-```
-ultralytics/models/yolo/detect/
-├── config.py    # Edit konfigurasi di sini
-├── helper.py    # Edit utility functions di sini
-└── predict.py   # Edit main logic di sini
-```
-
-Tidak perlu install ulang, perubahan langsung terdeteksi!
-
-### Adding Custom Functions
-
-1. Tambahkan ke `helper.py` untuk utility functions
-2. Import di `predict.py`:
-   ```python
-   from helper import your_new_function
-   ```
-
-### Changing Detection Lines
-
-Edit koordinat di `config.py`:
-
-```python
-SHELF_LINE_1_2 = ((x1, y1), (x2, y2))
-```
-
-Warna garis:
-```python
-LINE_COLOR_1_2 = (B, G, R)  # Format BGR OpenCV
-```
-
-## 🎨 Output
-
-- **Video Results:** `runs/detect/trackX/`
-- **Shelf Coordinates:** `shelf_coordinates.txt` (di working directory)
-- **Labels:** `runs/detect/trackX/labels/`
-
-## 🐛 Troubleshooting
-
-### Error: Module not found
-
-```bash
-# Reinstall in editable mode
-pip install -e .
-```
-
-### Error: Model file not found
-
-Pastikan model ada di:
-- `ultralytics/checkpoint/best (1).pt`
-- `ultralytics/checkpoint/hand_landmarker.task`
-
-### Error: DeepSort checkpoint not found
-
-Jika `USE_DEEPSORT=True`, pastikan:
-- `ultralytics/trackers/deep_sort_pytorch/.../ckpt.t7` ada
-- Atau set `USE_DEEPSORT=False` untuk menggunakan ByteTrack
-
-### Camera position salah
-
-Edit di `config.py`:
-```python
-CAMERA_FROM_TOP = True   # atau False
-```
-
-## 📝 Configuration Checklist
-
-Sebelum run, pastikan sudah set di `config.py`:
-
-- [ ] `USE_DEEPSORT` = True/False
-- [ ] `CAMERA_FROM_TOP` = True/False  
-- [ ] Model files ada di `ultralytics/checkpoint/`
-- [ ] Shelf lines koordinat sudah sesuai
-- [ ] Virtual line position sudah sesuai
-- [ ] UI settings (opsional)
-
-## 🔄 Workflow
-
-1. **Install:** `pip install -e .`
-2. **Configure:** Edit `ultralytics/models/yolo/detect/config.py`
-3. **Add Models:** Copy ke `ultralytics/checkpoint/`
-4. **Run:** `python run_tracking.py`
-5. **Edit Code:** Langsung edit tanpa reinstall
-6. **Test:** Run lagi untuk lihat perubahan
-
-## 📚 Documentation
-
-- [Ultralytics Docs](https://docs.ultralytics.com/)
-- [MediaPipe Hand Landmarker](https://developers.google.com/mediapipe/solutions/vision/hand_landmarker)
-- [DeepSort](https://github.com/nwojke/deep_sort)
-
-## 🤝 Contributing
-
-1. Edit code di `ultralytics/models/yolo/detect/`
-2. Test dengan `python run_tracking.py`
-3. Commit changes
-
----
-
-**Note:** Selalu gunakan `pip install -e .` agar perubahan code langsung terdeteksi tanpa reinstall!

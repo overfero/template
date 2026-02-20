@@ -1,3 +1,16 @@
+"""
+DetectionPredictor implementation for inference, postprocessing and visualization. Integrates
+MediaPipe hand-landmarker for hand detection/annotation and handles result I/O for the detect pipeline.
+
+Authors:
+    Fehru Madndala Putra (fehruputramen22@gmail.com)
+Reviewers:
+    Budi Kurniawan (budi.kurniawan1@gdplabs.id)
+    Aris Maulana (muhammad.a.maulana@gdplabs.id)
+References:
+    NONE
+"""
+
 # Ultralytics YOLO 🚀, GPL-3.0 license
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 

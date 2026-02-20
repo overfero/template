@@ -16,7 +16,7 @@ from smartfridge.utils.files import download
 
 settings = SETTINGS
 
-MODELS = ("YOLO")
+MODELS = ("YOLO",)
 
 __all__ = (
     "__version__",
