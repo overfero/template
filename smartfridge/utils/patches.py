@@ -179,26 +179,3 @@ def torch_save(*args, **kwargs):
             if i == 3:
                 raise e
             time.sleep((2**i) / 2)  # Exponential backoff: 0.5s, 1.0s, 2.0s
-
-
-@contextmanager
-def override_configs(args, overrides: dict[str, Any] | None = None):
-    """Context manager to temporarily override configurations in args.
-
-    Args:
-        args (IterableSimpleNamespace): Original configuration arguments.
-        overrides (dict[str, Any]): Dictionary of overrides to apply.
-
-    Yields:
-        (IterableSimpleNamespace): Configuration arguments with overrides applied.
-    """
-    if overrides:
-        original_args = copy(args)
-        for key, value in overrides.items():
-            setattr(args, key, value)
-        try:
-            yield args
-        finally:
-            args.__dict__.update(original_args.__dict__)
-    else:
-        yield args

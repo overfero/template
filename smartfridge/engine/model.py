@@ -12,7 +12,7 @@ from PIL import Image
 
 from smartfridge.cfg import get_cfg, get_save_dir
 from smartfridge.engine.results import Results
-from smartfridge.nn.tasks import guess_model_task, load_checkpoint, yaml_model_load
+from smartfridge.nn.tasks import load_checkpoint
 from smartfridge.utils import (
     ARGV,
     DEFAULT_CFG_DICT,
@@ -179,9 +179,9 @@ class Model(torch.nn.Module):
             >>> model = Model()
             >>> model._new("yolo26n.yaml", task="detect", verbose=True)
         """
-        cfg_dict = yaml_model_load(cfg)
+        cfg_dict = cfg
         self.cfg = cfg
-        self.task = task or guess_model_task(cfg_dict)
+        self.task = "detect"
         self.model = (model or self._smart_load("model"))(cfg_dict, verbose=verbose and RANK == -1)  # build model
         self.overrides["model"] = self.cfg
         self.overrides["task"] = self.task
@@ -222,7 +222,7 @@ class Model(torch.nn.Module):
         else:
             weights = checks.check_file(weights)  # runs in all cases, not redundant with above call
             self.model, self.ckpt = weights, None
-            self.task = task or guess_model_task(weights)
+            self.task = "detect"
             self.ckpt_path = weights
         self.overrides["model"] = weights
         self.overrides["task"] = self.task

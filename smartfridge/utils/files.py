@@ -13,36 +13,14 @@ from functools import cached_property
 from pathlib import Path
 import os
 
-from smartfridge.utils import ASSETS_URL, LOGGER, TQDM, checks, clean_url, emojis, is_online, url2file
+from smartfridge.utils import ASSETS_URL, LOGGER, TQDM, clean_url, emojis, is_online, url2file, checks
 
 # Define SmartFridge GitHub assets (previously ultralytics/assets)
 GITHUB_ASSETS_REPO = "smartfridge/assets"
 GITHUB_ASSETS_NAMES = frozenset(
-    [f"yolov8{k}{suffix}.pt" for k in "nsmlx" for suffix in ("", "-cls", "-seg", "-pose", "-obb", "-oiv7")]
-    + [f"yolo11{k}{suffix}.pt" for k in "nsmlx" for suffix in ("", "-cls", "-seg", "-pose", "-obb")]
-    + [f"yolo12{k}{suffix}.pt" for k in "nsmlx" for suffix in ("",)]  # detect models only currently
-    + [f"yolo26{k}{suffix}.pt" for k in "nsmlx" for suffix in ("", "-cls", "-seg", "-pose", "-obb")]
-    + [f"yolov5{k}{resolution}u.pt" for k in "nsmlx" for resolution in ("", "6")]
-    + [f"yolov3{k}u.pt" for k in ("", "-spp", "-tiny")]
-    + [f"yolov8{k}-world.pt" for k in "smlx"]
-    + [f"yolov8{k}-worldv2.pt" for k in "smlx"]
-    + [f"yoloe-v8{k}{suffix}.pt" for k in "sml" for suffix in ("-seg", "-seg-pf")]
-    + [f"yoloe-11{k}{suffix}.pt" for k in "sml" for suffix in ("-seg", "-seg-pf")]
-    + [f"yoloe-26{k}{suffix}.pt" for k in "nsmlx" for suffix in ("-seg", "-seg-pf")]
-    + [f"yolov9{k}.pt" for k in "tsmce"]
-    + [f"yolov10{k}.pt" for k in "nsmblx"]
-    + [f"yolo_nas_{k}.pt" for k in "sml"]
-    + [f"sam_{k}.pt" for k in "bl"]
-    + [f"sam2_{k}.pt" for k in "blst"]
-    + [f"sam2.1_{k}.pt" for k in "blst"]
-    + [f"FastSAM-{k}.pt" for k in "sx"]
-    + [f"rtdetr-{k}.pt" for k in "lx"]
-    + [
-        "mobile_sam.pt",
-        "mobileclip_blt.ts",
-        "yolo11n-grayscale.pt",
-        "calibration_image_sample_data_20x128x128x3_float32.npy.zip",
-    ]
+    [f"yolo11{k}{suffix}.pt" for k in "nsmlx" for suffix in ("")]
+    + [f"yolo12{k}{suffix}.pt" for k in "nsmlx" for suffix in ("")]  # detect models only currently
+    + [f"yolo26{k}{suffix}.pt" for k in "nsmlx" for suffix in ("")]
 )
 GITHUB_ASSETS_STEMS = frozenset(k.rpartition(".")[0] for k in GITHUB_ASSETS_NAMES)
 
@@ -166,19 +144,6 @@ class GitRepo:
                 break
         return url
 
-
-if __name__ == "__main__":
-    import time
-
-    g = GitRepo()
-    if g.is_repo:
-        t0 = time.perf_counter()
-        print(f"repo={g.root}\nbranch={g.branch}\ncommit={g.commit}\norigin={g.origin}")
-        dt = (time.perf_counter() - t0) * 1000
-        print(f"\n⏱️ Profiling: total {dt:.3f} ms")
-
-
-
 def is_url(url: str | Path, check: bool = False) -> bool:
     """Validate if the given string is a URL and optionally check if the URL exists online.
 
@@ -204,70 +169,6 @@ def is_url(url: str | Path, check: bool = False) -> bool:
         return True
     except Exception:
         return False
-
-
-def delete_dsstore(path: str | Path, files_to_delete: tuple[str, ...] = (".DS_Store", "__MACOSX")) -> None:
-    """Delete all specified system files in a directory.
-
-    Args:
-        path (str | Path): The directory path where the files should be deleted.
-        files_to_delete (tuple): The files to be deleted.
-
-    Examples:
-        >>> from ultralytics.utils.downloads import delete_dsstore
-        >>> delete_dsstore("path/to/dir")
-
-    Notes:
-        ".DS_Store" files are created by the Apple operating system and contain metadata about folders and files. They
-        are hidden system files and can cause issues when transferring files between different operating systems.
-    """
-    for file in files_to_delete:
-        matches = list(Path(path).rglob(file))
-        LOGGER.info(f"Deleting {file} files: {matches}")
-        for f in matches:
-            f.unlink()
-
-
-def zip_directory(
-    directory: str | Path,
-    compress: bool = True,
-    exclude: tuple[str, ...] = (".DS_Store", "__MACOSX"),
-    progress: bool = True,
-) -> Path:
-    """Zip the contents of a directory, excluding specified files.
-
-    The resulting zip file is named after the directory and placed alongside it.
-
-    Args:
-        directory (str | Path): The path to the directory to be zipped.
-        compress (bool): Whether to compress the files while zipping.
-        exclude (tuple, optional): A tuple of filename strings to be excluded.
-        progress (bool, optional): Whether to display a progress bar.
-
-    Returns:
-        (Path): The path to the resulting zip file.
-
-    Examples:
-        >>> from ultralytics.utils.downloads import zip_directory
-        >>> file = zip_directory("path/to/dir")
-    """
-    from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
-
-    delete_dsstore(directory)
-    directory = Path(directory)
-    if not directory.is_dir():
-        raise FileNotFoundError(f"Directory '{directory}' does not exist.")
-
-    # Zip with progress bar
-    files = [f for f in directory.rglob("*") if f.is_file() and all(x not in f.name for x in exclude)]  # files to zip
-    zip_file = directory.with_suffix(".zip")
-    compression = ZIP_DEFLATED if compress else ZIP_STORED
-    with ZipFile(zip_file, "w", compression) as f:
-        for file in TQDM(files, desc=f"Zipping {directory} to {zip_file}...", unit="files", disable=not progress):
-            f.write(file, file.relative_to(directory))
-
-    return zip_file  # return path to zip file
-
 
 def unzip_file(
     file: str | Path,

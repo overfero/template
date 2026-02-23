@@ -31,7 +31,6 @@ from smartfridge.utils.tqdm import TQDM  # noqa
 
 # PyTorch Multi-GPU DDP Constants
 RANK = int(os.getenv("RANK", -1))
-LOCAL_RANK = int(os.getenv("LOCAL_RANK", -1))  # https://pytorch.org/docs/stable/elastic/run.html
 
 # Other Constants
 ARGV = sys.argv or ["", ""]  # sometimes sys.argv = []
@@ -51,78 +50,6 @@ ARM64 = platform.machine() in {"arm64", "aarch64"}  # ARM64 booleans
 PYTHON_VERSION = platform.python_version()
 TORCH_VERSION = str(torch.__version__)  # Normalize torch.__version__ (PyTorch>1.9 returns TorchVersion objects)
 TORCHVISION_VERSION = importlib.metadata.version("torchvision")  # faster than importing torchvision
-IS_VSCODE = os.environ.get("TERM_PROGRAM", False) == "vscode"
-RKNN_CHIPS = frozenset(
-    {
-        "rk3588",
-        "rk3576",
-        "rk3566",
-        "rk3568",
-        "rk3562",
-        "rv1103",
-        "rv1106",
-        "rv1103b",
-        "rv1106b",
-        "rk2118",
-        "rv1126b",
-    }
-)  # Rockchip processors available for export
-HELP_MSG = """
-    Examples for running SmartFridge:
-
-    1. Install the ultralytics package:
-
-        pip install ultralytics
-
-    2. Use the Python SDK:
-
-        from ultralytics import YOLO
-
-        # Load a model
-        model = YOLO("yolo26n.yaml")  # build a new model from scratch
-        model = YOLO("yolo26n.pt")  # load a pretrained model (recommended for training)
-
-        # Use the model
-        results = model.train(data="coco8.yaml", epochs=3)  # train the model
-        results = model.val()  # evaluate model performance on the validation set
-        results = model("https://ultralytics.com/images/bus.jpg")  # predict on an image
-        success = model.export(format="onnx")  # export the model to ONNX format
-
-    3. Use the command line interface (CLI):
-
-        Ultralytics 'yolo' CLI commands use the following syntax:
-
-            yolo TASK MODE ARGS
-
-            Where   TASK (optional) is one of [detect, segment, classify, pose, obb]
-                    MODE (required) is one of [train, val, predict, export, track, benchmark]
-                    ARGS (optional) are any number of custom "arg=value" pairs like "imgsz=320" that override defaults.
-                        See all ARGS at https://docs.ultralytics.com/usage/cfg or with "yolo cfg"
-
-        - Train a detection model for 10 epochs with an initial learning_rate of 0.01
-            yolo detect train data=coco8.yaml model=yolo26n.pt epochs=10 lr0=0.01
-
-        - Predict a YouTube video using a pretrained segmentation model at image size 320:
-            yolo segment predict model=yolo26n-seg.pt source='https://youtu.be/LNwODJXcvt4' imgsz=320
-
-        - Val a pretrained detection model at batch-size 1 and image size 640:
-            yolo detect val model=yolo26n.pt data=coco8.yaml batch=1 imgsz=640
-
-        - Export a YOLO26n classification model to ONNX format at image size 224 by 128 (no TASK required)
-            yolo export model=yolo26n-cls.pt format=onnx imgsz=224,128
-
-        - Run special commands:
-            yolo help
-            yolo checks
-            yolo version
-            yolo settings
-            yolo copy-cfg
-            yolo cfg
-
-    Docs: https://docs.smartfridge.com
-    Community: https://community.smartfridge.com
-    GitHub: https://github.com/smartfridge/smartfridge
-    """
 
 # Settings and Environment Variables
 torch.set_printoptions(linewidth=320, precision=4, profile="default")
@@ -335,59 +262,6 @@ class IterableSimpleNamespace(SimpleNamespace):
     def get(self, key, default=None):
         """Return the value of the specified key if it exists; otherwise, return the default value."""
         return getattr(self, key, default)
-
-
-def plt_settings(rcparams=None, backend="Agg"):
-    """Decorator to temporarily set rc parameters and the backend for a plotting function.
-
-    Args:
-        rcparams (dict, optional): Dictionary of rc parameters to set.
-        backend (str, optional): Name of the backend to use.
-
-    Returns:
-        (Callable): Decorated function with temporarily set rc parameters and backend.
-
-    Examples:
-        >>> @plt_settings({"font.size": 12})
-        >>> def plot_function():
-        ...     plt.figure()
-        ...     plt.plot([1, 2, 3])
-        ...     plt.show()
-
-        >>> with plt_settings({"font.size": 12}):
-        ...     plt.figure()
-        ...     plt.plot([1, 2, 3])
-        ...     plt.show()
-    """
-    if rcparams is None:
-        rcparams = {"font.size": 11}
-
-    def decorator(func):
-        """Decorator to apply temporary rc parameters and backend to a function."""
-
-        def wrapper(*args, **kwargs):
-            """Set rc parameters and backend, call the original function, and restore the settings."""
-            import matplotlib.pyplot as plt  # scope for faster 'import ultralytics'
-
-            original_backend = plt.get_backend()
-            switch = backend.lower() != original_backend.lower()
-            if switch:
-                plt.close("all")  # auto-close()ing of figures upon backend switching is deprecated since 3.8
-                plt.switch_backend(backend)
-
-            # Plot with backend and always revert to original backend
-            try:
-                with plt.rc_context(rcparams):
-                    result = func(*args, **kwargs)
-            finally:
-                if switch:
-                    plt.close("all")
-                    plt.switch_backend(original_backend)
-            return result
-
-        return wrapper
-
-    return decorator
 
 
 def set_logging(name="root", verbose=True, enable_file: bool | None = None, logs_dir: str | Path | None = None, filename: str = "ultralytics.log"):
@@ -1358,7 +1232,7 @@ class SettingsManager(JSONDict):
             "clearml": True,  # ClearML integration
             "comet": True,  # Comet integration
             "dvc": True,  # DVC integration
-            "hub": True,  # Ultralytics HUB integration
+            "hub": False,  # Ultralytics HUB integration (disabled)
             "mlflow": True,  # MLflow integration
             "neptune": True,  # Neptune integration
             "raytune": True,  # Ray Tune integration

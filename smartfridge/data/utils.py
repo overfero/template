@@ -7,13 +7,9 @@ from typing import Any
 import cv2
 import numpy as np
 
-
-HELP_URL = "See https://docs.ultralytics.com/datasets for dataset formatting guidance."
 IMG_FORMATS = {"avif", "bmp", "dng", "heic", "jp2", "jpeg", "jpeg2000", "jpg", "mpo", "png", "tif", "tiff", "webp"}
 VID_FORMATS = {"asf", "avi", "gif", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "ts", "wmv", "webm"}  # videos
 FORMATS_HELP_MSG = f"Supported formats are:\nimages: {IMG_FORMATS}\nvideos: {VID_FORMATS}"
-DEFAULT_MEAN = (0.0, 0.0, 0.0)
-DEFAULT_STD = (1.0, 1.0, 1.0)
 
 class LetterBox:
     """Resize image and padding for detection, instance segmentation, pose.

@@ -9,7 +9,6 @@ import torch
 
 from smartfridge.engine.model import Model
 from smartfridge.models import yolo
-from smartfridge.nn.tasks import DetectionModel
 
 from smartfridge.utils import ROOT, YAML
 
@@ -61,7 +60,6 @@ class YOLO(Model):
         """Map head to model, trainer, validator, and predictor classes."""
         return {
             "detect": {
-                "model": DetectionModel,
                 "predictor": yolo.detect.DetectionPredictor,
             },
         }
