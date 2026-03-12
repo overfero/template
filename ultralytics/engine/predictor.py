@@ -38,6 +38,7 @@ from __future__ import annotations
 import platform
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -78,10 +79,10 @@ class BasePredictor:
         save_dir (Path): Directory to save results.
         done_warmup (bool): Whether the predictor has finished setup.
         model (torch.nn.Module): Model used for prediction.
-        data (dict): Data configuration.
+        data (str): Data configuration.
         device (torch.device): Device used for prediction.
         dataset (Dataset): Dataset used for prediction.
-        vid_writer (dict[str, cv2.VideoWriter]): Dictionary of {save_path: video_writer} for saving video output.
+        vid_writer (dict[Path, cv2.VideoWriter]): Dictionary of {save_path: video_writer} for saving video output.
         plotted_img (np.ndarray): Last plotted image.
         source_type (SimpleNamespace): Type of input source.
         seen (int): Number of images processed.
@@ -117,7 +118,7 @@ class BasePredictor:
         """Initialize the BasePredictor class.
 
         Args:
-            cfg (str | dict): Path to a configuration file or a configuration dictionary.
+            cfg (str | Path | dict | SimpleNamespace): Path to a configuration file or a configuration dictionary.
             overrides (dict, optional): Configuration overrides.
             _callbacks (dict, optional): Dictionary of callback functions.
         """
@@ -275,7 +276,7 @@ class BasePredictor:
 
     @smart_inference_mode()
     def stream_inference(self, source=None, model=None, *args, **kwargs):
-        """Stream real-time inference on camera feed and save results to file.
+        """Stream inference on input source and save results to file.
 
         Args:
             source (str | Path | list[str] | list[Path] | list[np.ndarray] | np.ndarray | torch.Tensor, optional):
@@ -316,39 +317,65 @@ class BasePredictor:
                 ops.Profile(device=self.device),
             )
             self.run_callbacks("on_predict_start")
-            for batch in self.dataset:
-                self.batch = batch
-                self.run_callbacks("on_predict_batch_start")
+
+            # Profiler untuk setiap phase pipeline
+            p_load  = ops.Profile(device=self.device)  # data loading / nvdec decode
+            p_gap_a = ops.Profile(device=self.device)  # on_predict_batch_start callback
+            p_gap_b = ops.Profile(device=self.device)  # on_predict_postprocess_end callback
+            p_write = ops.Profile(device=self.device)  # write_results / VideoWriter
+            p_track = ops.Profile(device=self.device)  # on_predict_batch_end (tracking)
+            p_yield = ops.Profile(device=self.device)  # yield + loop body user
+
+            # Wall-clock keseluruhan (perf_counter, bukan CUDA event)
+            _wall_start = time.perf_counter()
+
+            _dataset_iter = iter(self.dataset)
+            while True:
+                # --- LOAD: decode + IO ---
+                with p_load:
+                    try:
+                        _batch_raw = next(_dataset_iter)
+                    except StopIteration:
+                        break
+                self.batch = _batch_raw
                 paths, im0s, s = self.batch
 
-                # Preprocess
+                # --- GAP A: on_predict_batch_start ---
+                with p_gap_a:
+                    self.run_callbacks("on_predict_batch_start")
+
+                # --- PREPROCESS ---
                 with profilers[0]:
                     im = self.preprocess(im0s)
 
-                # Inference
+                # --- INFERENCE ---
                 with profilers[1]:
                     preds = self.inference(im, *args, **kwargs)
                     if self.args.embed:
-                        yield from [preds] if isinstance(preds, torch.Tensor) else preds  # yield embedding tensors
+                        yield from [preds] if isinstance(preds, torch.Tensor) else preds
                         continue
 
-                # Postprocess
+                # --- POSTPROCESS ---
                 with profilers[2]:
                     self.results = self.postprocess(preds, im, im0s)
-                self.run_callbacks("on_predict_postprocess_end")
 
-                # Visualize, save, write results
+                # --- GAP B: on_predict_postprocess_end ---
+                with p_gap_b:
+                    self.run_callbacks("on_predict_postprocess_end")
+
+                # --- WRITE RESULTS ---
                 n = len(im0s)
                 try:
-                    for i in range(n):
-                        self.seen += 1
-                        self.results[i].speed = {
-                            "preprocess": profilers[0].dt * 1e3 / n,
-                            "inference": profilers[1].dt * 1e3 / n,
-                            "postprocess": profilers[2].dt * 1e3 / n,
-                        }
-                        if self.args.verbose or self.args.save or self.args.save_txt or self.args.show:
-                            s[i] += self.write_results(i, Path(paths[i]), im, s)
+                    with p_write:
+                        for i in range(n):
+                            self.seen += 1
+                            self.results[i].speed = {
+                                "preprocess": profilers[0].dt * 1e3 / n,
+                                "inference": profilers[1].dt * 1e3 / n,
+                                "postprocess": profilers[2].dt * 1e3 / n,
+                            }
+                            if self.args.verbose or self.args.save or self.args.save_txt or self.args.show:
+                                s[i] += self.write_results(i, Path(paths[i]), im, s)
                 except StopIteration:
                     break
 
@@ -356,8 +383,25 @@ class BasePredictor:
                 if self.args.verbose:
                     LOGGER.info("\n".join(s))
 
-                self.run_callbacks("on_predict_batch_end")
+                # --- TRACKING: on_predict_batch_end ---
+                with p_track:
+                    self.run_callbacks("on_predict_batch_end")
+
+                # --- YIELD: serahkan kontrol ke loop user, ukur waktu kembali ---
+                _t_before_yield = time.perf_counter()
                 yield from self.results
+                p_yield.t += time.perf_counter() - _t_before_yield
+
+            _wall_total = time.perf_counter() - _wall_start
+
+            # Simpan semua profiler ke attributes
+            self._p_load   = p_load
+            self._p_gap_a  = p_gap_a
+            self._p_gap_b  = p_gap_b
+            self._p_write  = p_write
+            self._p_track  = p_track
+            self._p_yield  = p_yield
+            self._wall_total = _wall_total
 
         # Release assets
         for v in self.vid_writer.values():
@@ -368,11 +412,62 @@ class BasePredictor:
             cv2.destroyAllWindows()  # close any open windows
 
         # Print final results
-        if self.args.verbose and self.seen:
-            t = tuple(x.t / self.seen * 1e3 for x in profilers)  # speeds per image
+        if self.seen:
+            t = tuple(x.t / self.seen * 1e3 for x in profilers)  # avg ms per image
+
+            def _ms(p_attr):
+                p = getattr(self, p_attr, None)
+                return (p.t / self.seen * 1e3) if p else 0.0
+
+            t_load   = _ms("_p_load")
+            t_gap_a  = _ms("_p_gap_a")
+            t_gap_b  = _ms("_p_gap_b")
+            t_write  = _ms("_p_write")
+            t_track  = _ms("_p_track")
+            t_yield  = _ms("_p_yield")
+
+            t_total_profiled = t_load + t_gap_a + t[0] + t[1] + t[2] + t_gap_b + t_write + t_track + t_yield
+
+            # Wall-clock aktual per frame (dari perf_counter nyata)
+            wall_total   = getattr(self, "_wall_total", None)
+            t_wall_frame = (wall_total / self.seen * 1e3) if wall_total else 0.0
+            t_unaccounted = max(0.0, t_wall_frame - t_total_profiled)
+
+            self.speed_stats = {
+                "load":             t_load,
+                "gap_a_cb_start":   t_gap_a,
+                "preprocess":       t[0],
+                "inference":        t[1],
+                "postprocess":      t[2],
+                "gap_b_cb_postend": t_gap_b,
+                "write":            t_write,
+                "tracking":         t_track,
+                "yield_loop":       t_yield,
+                "unaccounted":      t_unaccounted,
+                "total_profiled":   t_total_profiled,
+                "wall_per_frame":   t_wall_frame,
+            }
+
+            sep = "─" * 58
             LOGGER.info(
-                f"Speed: %.1fms preprocess, %.1fms inference, %.1fms postprocess per image at shape "
-                f"{(min(self.args.batch, self.seen), getattr(self.model, 'ch', 3), *im.shape[2:])}" % t
+                f"\n{sep}\n"
+                f"  Pipeline breakdown (avg per frame, {self.seen} frames)\n"
+                f"{sep}\n"
+                f"  {'load (decode+IO)':<28} {t_load:>7.1f} ms  ({t_load/t_wall_frame*100:>4.1f}%)\n"
+                f"  {'gap_a (on_batch_start cb)':<28} {t_gap_a:>7.1f} ms  ({t_gap_a/t_wall_frame*100:>4.1f}%)\n"
+                f"  {'preprocess':<28} {t[0]:>7.1f} ms  ({t[0]/t_wall_frame*100:>4.1f}%)\n"
+                f"  {'inference':<28} {t[1]:>7.1f} ms  ({t[1]/t_wall_frame*100:>4.1f}%)\n"
+                f"  {'postprocess':<28} {t[2]:>7.1f} ms  ({t[2]/t_wall_frame*100:>4.1f}%)\n"
+                f"  {'gap_b (on_postprocess_end cb)':<28} {t_gap_b:>7.1f} ms  ({t_gap_b/t_wall_frame*100:>4.1f}%)\n"
+                f"  {'write_results':<28} {t_write:>7.1f} ms  ({t_write/t_wall_frame*100:>4.1f}%)\n"
+                f"  {'tracking (on_batch_end cb)':<28} {t_track:>7.1f} ms  ({t_track/t_wall_frame*100:>4.1f}%)\n"
+                f"  {'yield + loop body (user)':<28} {t_yield:>7.1f} ms  ({t_yield/t_wall_frame*100:>4.1f}%)\n"
+                f"  {'unaccounted (GC/sched/etc)':<28} {t_unaccounted:>7.1f} ms  ({t_unaccounted/t_wall_frame*100:>4.1f}%)\n"
+                f"{sep}\n"
+                f"  {'TOTAL (profiled)':<28} {t_total_profiled:>7.1f} ms\n"
+                f"  {'TOTAL (wall-clock/frame)':<28} {t_wall_frame:>7.1f} ms  → {1000/t_wall_frame:.1f} FPS\n"
+                f"  shape {(min(self.args.batch, self.seen), getattr(self.model, 'ch', 3), *im.shape[2:])}\n"
+                f"{sep}"
             )
         if self.args.save or self.args.save_txt or self.args.save_crop:
             nl = len(list(self.save_dir.glob("labels/*.txt")))  # number of labels
@@ -384,7 +479,7 @@ class BasePredictor:
         """Initialize YOLO model with given parameters and set it to evaluation mode.
 
         Args:
-            model (str | Path | torch.nn.Module, optional): Model to load or use.
+            model (str | Path | torch.nn.Module): Model to load or use.
             verbose (bool): Whether to print verbose output.
         """
         if hasattr(model, "end2end"):
@@ -460,7 +555,7 @@ class BasePredictor:
         return string
 
     def save_predicted_images(self, save_path: Path, frame: int = 0):
-        """Save video predictions as mp4 or images as jpg at specified path.
+        """Save video predictions as mp4/avi or images as jpg at specified path.
 
         Args:
             save_path (Path): Path to save the results.

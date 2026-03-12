@@ -1,36 +1,31 @@
 from ultralytics import YOLO
-from pathlib import Path
+import time
 
-
-model_name = "ultralytics/checkpoint/best1.pt"
-
-#
-print(f"Loading model: {model_name}")
-if not Path(model_name).exists():
-    print(f"Model not found locally, will download from Ultralytics...")
+# model_name = "models/yolo26s_cpu.onnx"
+model_name = "ultralytics/checkpoint/yolo11n_openvino_model"
 
 model = YOLO(model_name)
 
-results = model.track(
-    source="/home/overfero/Project/glair/Jumpstart - Smart Fridge/Ambil Biasa - Atas Samping/WIN_20260126_10_17_30_Pro.mp4",
-    stream=True,  
-    save=True,    
-    show=False,    
-    device=0,     
-    persist=True,  
-    tracker="hybridsort.yaml"  # Changed to OC-SORT tracker
-)
+N_FRAMES = 2268
 
-# Process results in streaming mode (like in docs)
+# PENTING: stream=True agar hasil tidak akumulasi di RAM
+# Tanpa stream=True → 3648 * (1920x1080x3 uint8) ≈ 22GB RAM → GC pressure → +33ms/frame
+t_start = time.perf_counter()
 frame_count = 0
-for result in results:
+for r in model.track(
+    source="/home/overfero/Project/glair/Jumpstart - Smart Fridge/Ambil Biasa - Atas Samping/WIN_20260126_10_17_30_Pro.mp4",
+    half=False,
+    device="cpu",
+    persist=True,
+    tracker="hybridsort.yaml",
+    stream=True,   # ← WAJIB untuk pipeline yang efisien
+    verbose=False,
+    # save=True,
+):
     frame_count += 1
-    
-    # You can access result properties if needed
-    # boxes = result.boxes  # Boxes with tracking IDs
-    # masks = result.masks  # Masks (if using segment model)
-    
-    if frame_count % 30 == 0:  # Print progress every 30 frames
-        print(f"Processed {frame_count} frames...")
+    # Akses hasil di sini kalau perlu, misal:
+    # boxes = r.boxes.xyxy  # bounding boxes
+    # track_ids = r.boxes.id  # track IDs
 
-print(f"\n✅ Done! Processed {frame_count} frames total.")
+t_elapsed = time.perf_counter() - t_start
+print(f"⏱  Total time: {t_elapsed:.2f}s  |  avg {t_elapsed / frame_count * 1000:.1f} ms/frame  |  {frame_count / t_elapsed:.1f} FPS  ({frame_count} frames)")

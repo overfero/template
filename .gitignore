@@ -156,10 +156,10 @@ wandb/
 # Neural Network weights -----------------------------------------------------------------------------------------------
 weights/
 *.weights
-*.pt
+# *.pt
 *.ts
 *.pb
-*.onnx
+# *.onnx
 *.engine
 *.mlmodel
 *.mlpackage
@@ -169,7 +169,7 @@ weights/
 *.mnn
 *_saved_model/
 *_web_model/
-*_openvino_model/
+# *_openvino_model/
 *_paddle_model/
 *_ncnn_model/
 *_imx_model/
