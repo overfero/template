@@ -59,6 +59,12 @@ line = LINE_TOP_CAMERA if CAMERA_FROM_TOP else LINE_BOTTOM_CAMERA
 class DetectionPredictor(BasePredictor):
     """YOLO Detection Predictor for inference and tracking."""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Per-frame taken result: list of {"product": str, "trail_len": int}
+        # Populated at the end of every write_results() call.
+        self.current_taken_result: list[dict] = []
+
     def get_annotator(self, img):
         """Get annotator object for image."""
         return Annotator(img, line_width=self.args.line_thickness, example=str(self.model.names))
@@ -118,26 +124,17 @@ class DetectionPredictor(BasePredictor):
         
         # HAND LANDMARK DETECTION
         # Convert BGR to RGB for MediaPipe
-        rgb_frame = cv2.cvtColor(im0, cv2.COLOR_BGR2RGB)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-        timestamp_ms = int(frame * 1000 / DEFAULT_FPS) if frame is not None else 0
-        
-        # Detect hand landmarks
-        # try:
-        #     detection_result = detector.detect_for_video(mp_image, timestamp_ms)
-        #     annotated_rgb = draw_landmarks_on_image(rgb_frame, detection_result)
-        #     im0 = cv2.cvtColor(annotated_rgb, cv2.COLOR_RGB2BGR)
-        # except Exception as e:
-        #     print(f"Hand detection error: {e}")
-        #     pass
+        # rgb_frame = cv2.cvtColor(im0, cv2.COLOR_BGR2RGB)
+        # mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+        # timestamp_ms = int(frame * 1000 / DEFAULT_FPS) if frame is not None else 0
         
         # Get predictions for this image
         det = result.boxes.data  # xyxy, conf, cls
 
         # Draw reference lines
-        cv2.line(im0, line[0], line[1], LINE_COLOR_MAIN, LINE_THICKNESS)
+        # cv2.line(im0, line[0], line[1], LINE_COLOR_MAIN, LINE_THICKNESS)
     
-        height, width, _ = im0.shape
+        # height, width, _ = im0.shape
 
         # Display net Taken counts (Taken - Returned). Show only non-zero nets.
         net_counts = {}
@@ -148,21 +145,21 @@ class DetectionPredictor(BasePredictor):
                 net_counts[k] = -v
 
         displayed = [(k, cnt) for k, cnt in net_counts.items() if cnt != 0]
-        if displayed:
-            cv2.line(im0, (UI_LEFT_MARGIN, UI_TOP_MARGIN), (UI_BOX_WIDTH, UI_TOP_MARGIN), UI_BOX_COLOR, UI_LINE_HEIGHT)
-            cv2.putText(im0, f'Products Taken (net)', (11, 35), 0, 1, UI_TEXT_COLOR, thickness=UI_TEXT_THICKNESS, lineType=cv2.LINE_AA)
-        for idx, (key, value) in enumerate(displayed):
-            cnt_str = f"{key}:{value}"
-            cv2.line(im0, (UI_LEFT_MARGIN, 65 + (idx * UI_LINE_HEIGHT)), (UI_BOX_WIDTH, 65 + (idx * UI_LINE_HEIGHT)), UI_BOX_COLOR, 30)
-            cv2.putText(im0, cnt_str, (11, 75 + (idx * UI_LINE_HEIGHT)), 0, 1, UI_TEXT_COLOR, thickness=UI_TEXT_THICKNESS, lineType=cv2.LINE_AA)
+        # if displayed:
+        #     cv2.line(im0, (UI_LEFT_MARGIN, UI_TOP_MARGIN), (UI_BOX_WIDTH, UI_TOP_MARGIN), UI_BOX_COLOR, UI_LINE_HEIGHT)
+        #     cv2.putText(im0, f'Products Taken (net)', (11, 35), 0, 1, UI_TEXT_COLOR, thickness=UI_TEXT_THICKNESS, lineType=cv2.LINE_AA)
+        # for idx, (key, value) in enumerate(displayed):
+        #     cnt_str = f"{key}:{value}"
+        #     cv2.line(im0, (UI_LEFT_MARGIN, 65 + (idx * UI_LINE_HEIGHT)), (UI_BOX_WIDTH, 65 + (idx * UI_LINE_HEIGHT)), UI_BOX_COLOR, 30)
+        #     cv2.putText(im0, cnt_str, (11, 75 + (idx * UI_LINE_HEIGHT)), 0, 1, UI_TEXT_COLOR, thickness=UI_TEXT_THICKNESS, lineType=cv2.LINE_AA)
     
         # Display frame number at bottom right
-        frame_text = f"Frame: {frame if frame is not None else 0}"
-        text_size = cv2.getTextSize(frame_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
-        text_x = width - text_size[0] - 15
-        text_y = height - 15
-        cv2.putText(im0, frame_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, [255, 255, 255], thickness=2, lineType=cv2.LINE_AA)
-        
+        # frame_text = f"Frame: {frame if frame is not None else 0}"
+        # text_size = cv2.getTextSize(frame_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
+        # text_x = width - text_size[0] - 15
+        # text_y = height - 15
+        # cv2.putText(im0, frame_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, [255, 255, 255], thickness=2, lineType=cv2.LINE_AA)
+
         if len(det) == 0:
             string += f"{result.verbose()}{result.speed['inference']:.1f}ms"
             # Set plotted image with line and counters even when no detections
@@ -174,7 +171,7 @@ class DetectionPredictor(BasePredictor):
             if self.args.show:
                 self.show(str(p))
             if self.args.save:
-                self.save_predicted_images(self.save_dir / p.name, frame)
+                pass  # save_predicted_images disabled — use self.args.save as flag only
             return string
             
         for c in det[:, 5].unique():
@@ -213,12 +210,17 @@ class DetectionPredictor(BasePredictor):
                         last_seen_frame=frame if frame is not None else 0,
                     )
                     stored_moving_objects[identity] = product
-                
+
+                # Append current position to trail every frame
+                product.trail_points.append((center_x, center_y))
+
                 # Track if object is below line
                 if is_point_below_line(product.current_position, line[0], line[1]):
                     ids_below_line.add(identity)
 
-                    if product.taken_counted and not product.return_counted and is_point_below_line(product.trail_points[0], line[0], line[1]):
+                    if (product.taken_counted and not product.return_counted
+                            and len(product.trail_points) > 0
+                            and is_point_below_line(product.trail_points[0], line[0], line[1])):
                         obj_label = f"{product.class_name}"
                         if obj_label not in object_counter1:
                             object_counter1[obj_label] = 0
@@ -265,6 +267,13 @@ class DetectionPredictor(BasePredictor):
             # Now draw boxes with potentially updated identities
             draw_boxes(im0, stored_moving_objects, identities, object_counter, object_counter1, line, frame)
 
+        # ── Collect currently-taken products (taken but not yet returned) ──
+        self.current_taken_result = [
+            {"product": p.class_name, "trail_len": len(p.trail_points)}
+            for p in stored_moving_objects.values()
+            if p.taken_counted and not p.return_counted
+        ]
+
         # Set plotted image with tracking results
         self.plotted_img = im0
         
@@ -276,7 +285,7 @@ class DetectionPredictor(BasePredictor):
         if self.args.show:
             self.show(str(p))
         if self.args.save:
-            self.save_predicted_images(self.save_dir / p.name, frame)
+            pass  # save_predicted_images disabled — use self.args.save as flag only
             
         string += f"{result.speed['inference']:.1f}ms"
         return string

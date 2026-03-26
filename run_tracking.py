@@ -20,7 +20,7 @@ for r in model.track(
     tracker="hybridsort.yaml",
     stream=True,   # ← WAJIB untuk pipeline yang efisien
     verbose=False,
-    # save=True,
+    save=True,
 ):
     frame_count += 1
     # Akses hasil di sini kalau perlu, misal:

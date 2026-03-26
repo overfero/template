@@ -234,7 +234,7 @@ def draw_boxes(img, stored_object, identities, object_counter, object_counter1, 
             direction = get_direction(p0, p1)
             prod.movement_direction = direction
             if intersect(p0, p1, line[0], line[1]):
-                cv2.line(img, line[0], line[1], (255, 255, 255), 3)
+                # cv2.line(img, line[0], line[1], (255, 255, 255), 3)
                 
                 # Logic based on camera position
                 if "North" in direction:
@@ -258,7 +258,7 @@ def draw_boxes(img, stored_object, identities, object_counter, object_counter1, 
                         prod.return_counted = True
                         prod.last_seen_frame = current_frame
 
-        UI_box(prod.bbox, img, label=label, color=color, line_thickness=2)
+        # UI_box(prod.bbox, img, label=label, color=color, line_thickness=2)
 
     # with open("track.txt", "a") as f:
     #     for obj_id, prod in stored_object.items():

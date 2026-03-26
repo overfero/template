@@ -31,9 +31,17 @@ DEEPSORT_REID_CKPT = str(ULTRALYTICS_ROOT / "trackers" / "deep_sort_pytorch" / "
 # ============================================================================
 CAMERA_FROM_TOP = True  # True = camera from top, False = camera from bottom
 
+# Per-camera flags (used by parallel script to configure each worker)
+CAMERA_TOP_FROM_TOP    = True   # top camera is physically from above
+CAMERA_BOTTOM_FROM_TOP = False  # bottom camera is physically from below
+
+# Video source paths (used by parallel script)
+CAMERA_TOP_SOURCE    = "/home/overfero/Project/glair/template/smart_fridge_atas.mp4"
+CAMERA_BOTTOM_SOURCE = "/home/overfero/Project/glair/template/smart_fridge_bawah.mp4"
+
 # Virtual line position based on camera position
-LINE_TOP_CAMERA = [(50, 400), (1800, 300)]
-LINE_BOTTOM_CAMERA = [(0, 100), (2000, 100)]  #
+LINE_TOP_CAMERA    = [(50, 400), (1800, 300)]
+LINE_BOTTOM_CAMERA = [(0, 100), (2000, 100)]
 
 # Line colors for visualization
 LINE_COLOR_MAIN = (46, 162, 112)  # Main line color
