@@ -2,7 +2,8 @@ from ultralytics import YOLO
 import time
 
 # model_name = "models/yolo26s_cpu.onnx"
-model_name = "ultralytics/checkpoint/yolo11n_openvino_model"
+# model_name = "ultralytics/checkpoint/yolo11n_openvino_model"  # native OpenVINO
+model_name = "ultralytics/checkpoint/yolo11n_cpu.onnx"  # onnxruntime + OpenVINOExecutionProvider
 
 model = YOLO(model_name)
 

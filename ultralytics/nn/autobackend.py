@@ -262,17 +262,20 @@ class AutoBackend(nn.Module):
             check_requirements(("onnx", "onnxruntime-gpu" if cuda else "onnxruntime"))
             import onnxruntime
 
-            # Select execution provider: CUDA > CoreML (mps) > CPU
+            # Select execution provider: CUDA > CoreML (mps) > OpenVINO > CPU
             available = onnxruntime.get_available_providers()
             if cuda and "CUDAExecutionProvider" in available:
                 providers = [("CUDAExecutionProvider", {"device_id": device.index}), "CPUExecutionProvider"]
             elif device.type == "mps" and "CoreMLExecutionProvider" in available:
                 providers = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
             else:
-                providers = ["CPUExecutionProvider"]
                 if cuda:
                     LOGGER.warning("CUDA requested but CUDAExecutionProvider not available. Using CPU...")
                     device, cuda = torch.device("cpu"), False
+                if "OpenVINOExecutionProvider" in available:
+                    providers = ["OpenVINOExecutionProvider", "CPUExecutionProvider"]
+                else:
+                    providers = ["CPUExecutionProvider"]
             LOGGER.info(
                 f"Using ONNX Runtime {onnxruntime.__version__} with {providers[0] if isinstance(providers[0], str) else providers[0][0]}"
             )

@@ -30,7 +30,7 @@ from ultralytics.models.yolo.detect.config import (
     LINE_BOTTOM_CAMERA,
 )
 
-MODEL_PATH = "ultralytics/checkpoint/yolo11n_openvino_model"
+MODEL_PATH = "ultralytics/checkpoint/yolo11n_cpu.onnx"
 TRACKER    = "hybridsort.yaml"
 
 
