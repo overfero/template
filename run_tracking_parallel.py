@@ -24,9 +24,10 @@ WORKER_SCRIPT = os.path.join(ROOT, "tracking_worker.py")
 
 # ── Konfigurasi ────────────────────────────────────────────────────────────
 PYTHON      = sys.executable   # pakai interpreter yang sama dengan main process
-CORES_TOP   = "0-3"
-CORES_BOT   = "4-7"
-OMP_THREADS = "4"
+# Split per physical core + HT sibling: core0→CPU0,4 | core1→CPU1,5 | core2→CPU2,6 | core3→CPU3,7
+CORES_TOP   = "0,1,4,5"   # physical core 0 & 1
+CORES_BOT   = "2,3,6,7"   # physical core 2 & 3
+OMP_THREADS = "2"          # 2 physical cores per worker
 
 # ── Data structures ────────────────────────────────────────────────────────
 @dataclass
@@ -124,6 +125,8 @@ def main() -> list[FusedState]:
             "GOMP_SPINCOUNT":       "0",
             "MKL_NUM_THREADS":      omp_n,
             "OPENBLAS_NUM_THREADS": omp_n,
+            "NUMEXPR_NUM_THREADS":  omp_n,
+            "OV_CPU_THREADS_NUM":   omp_n,  # batasi thread OpenVINO EP (pakai TBB, bukan OMP)
         })
         return e
 
